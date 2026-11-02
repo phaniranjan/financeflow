@@ -2,6 +2,7 @@ import uuid
 from decimal import Decimal
 
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from financeflow.core.exceptions import (
@@ -104,6 +105,14 @@ class FinancingService:
         self._financing_repo.create(application)
         try:
             self._session.commit()
+        except IntegrityError as exc:
+            self._session.rollback()
+            error_msg = str(exc).lower()
+            if "uq_financing_active_invoice" in error_msg or "unique constraint" in error_msg:
+                raise DuplicateFinancingError(
+                    f"Invoice {invoice_id} already has an active financing application"
+                ) from exc
+            raise
         except Exception:
             self._session.rollback()
             raise

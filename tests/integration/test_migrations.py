@@ -3,8 +3,8 @@ import sqlalchemy as sa
 from alembic.config import Config
 from sqlalchemy import inspect
 
+import financeflow.models  # noqa: F401
 from alembic import command
-from financeflow.db.base import Base
 from financeflow.db.session import engine
 
 
@@ -18,14 +18,18 @@ def alembic_config():
 @pytest.fixture(autouse=True)
 def clean_db():
     """Ensure database is in a clean state and alembic_version is reset."""
-    Base.metadata.drop_all(bind=engine)
     with engine.connect() as conn:
+        conn.execute(sa.text("DROP TABLE IF EXISTS financing_applications CASCADE;"))
+        conn.execute(sa.text("DROP TABLE IF EXISTS invoices CASCADE;"))
+        conn.execute(sa.text("DROP TABLE IF EXISTS businesses CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS alembic_version CASCADE;"))
         conn.commit()
     yield
     # Clean up after test
-    Base.metadata.drop_all(bind=engine)
     with engine.connect() as conn:
+        conn.execute(sa.text("DROP TABLE IF EXISTS financing_applications CASCADE;"))
+        conn.execute(sa.text("DROP TABLE IF EXISTS invoices CASCADE;"))
+        conn.execute(sa.text("DROP TABLE IF EXISTS businesses CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS alembic_version CASCADE;"))
         conn.commit()
 

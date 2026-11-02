@@ -373,3 +373,43 @@ class TestInvoiceAndBusinessPersistence:
         db_session.commit()
 
         assert db_session.get(FinancingApplication, app_id) is None
+
+    @pytest.mark.integration
+    def test_database_enforces_unique_active_financing_application(
+        self, db_session: Session
+    ) -> None:
+        """Verify DB partial unique index prevents concurrent active financing on same invoice."""
+        business = Business(tax_id=f"TAX-{uuid.uuid4().hex[:8]}", legal_name="Corp")
+        db_session.add(business)
+        db_session.flush()
+
+        invoice = Invoice(
+            business_id=business.id,
+            invoice_number="INV-UQ-FIN-001",
+            debtor_name="Debtor",
+            amount=Decimal("10000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+        )
+        db_session.add(invoice)
+        db_session.flush()
+
+        app1 = FinancingApplication(
+            business_id=business.id,
+            invoice_id=invoice.id,
+            requested_amount=Decimal("5000.00"),
+            status=FinancingStatus.SUBMITTED.value,
+        )
+        db_session.add(app1)
+        db_session.commit()
+
+        app2 = FinancingApplication(
+            business_id=business.id,
+            invoice_id=invoice.id,
+            requested_amount=Decimal("6000.00"),
+            status=FinancingStatus.SUBMITTED.value,
+        )
+        db_session.add(app2)
+        with pytest.raises(IntegrityError, match="uq_financing_active_invoice"):
+            db_session.commit()
+        db_session.rollback()

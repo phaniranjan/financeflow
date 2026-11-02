@@ -8,9 +8,11 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Numeric,
     String,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -53,6 +55,12 @@ class FinancingApplication(Base):
         CheckConstraint(
             "fee_rate >= 0 AND fee_rate <= 1.0",
             name="ck_financing_fee_rate_bounds",
+        ),
+        Index(
+            "uq_financing_active_invoice",
+            "invoice_id",
+            unique=True,
+            postgresql_where=text("status IN ('SUBMITTED', 'APPROVED', 'DISBURSED')"),
         ),
     )
 

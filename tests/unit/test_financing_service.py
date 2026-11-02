@@ -4,6 +4,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from financeflow.core.exceptions import (
     BusinessInactiveError,
@@ -399,6 +400,84 @@ class TestFinancingApplicationCreation:
         mock_session.commit.side_effect = RuntimeError("DB error")
 
         with pytest.raises(RuntimeError, match="DB error"):
+            financing_service.create_application(
+                business_id=b_id,
+                invoice_id=inv_id,
+                requested_amount=Decimal("8000.00"),
+            )
+
+        mock_session.rollback.assert_called_once()
+
+    @pytest.mark.unit
+    def test_create_application_unique_constraint_violation_translates(
+        self,
+        financing_service: FinancingService,
+        mock_session: MagicMock,
+        mock_business_repo: MagicMock,
+        mock_invoice_repo: MagicMock,
+        mock_financing_repo: MagicMock,
+    ) -> None:
+        """Verify DB unique constraint violation translates to DuplicateFinancingError."""
+        b_id = uuid.uuid4()
+        inv_id = uuid.uuid4()
+        mock_business_repo.get_by_id.return_value = Business(
+            id=b_id, tax_id="TAX-1", legal_name="Corp", status=BusinessStatus.ACTIVE
+        )
+        mock_invoice_repo.get_by_id.return_value = Invoice(
+            id=inv_id,
+            business_id=b_id,
+            invoice_number="INV-001",
+            debtor_name="Debtor",
+            amount=Decimal("10000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+            status=InvoiceStatus.SUBMITTED,
+        )
+        mock_financing_repo.get_active_by_invoice.return_value = None
+        mock_session.commit.side_effect = IntegrityError(
+            "uq_financing_active_invoice", params={}, orig=Exception("unique constraint")
+        )
+
+        with pytest.raises(DuplicateFinancingError, match="already has an active financing"):
+            financing_service.create_application(
+                business_id=b_id,
+                invoice_id=inv_id,
+                requested_amount=Decimal("8000.00"),
+            )
+
+        mock_session.rollback.assert_called_once()
+
+    @pytest.mark.unit
+    def test_create_application_other_integrity_error_reraises(
+        self,
+        financing_service: FinancingService,
+        mock_session: MagicMock,
+        mock_business_repo: MagicMock,
+        mock_invoice_repo: MagicMock,
+        mock_financing_repo: MagicMock,
+    ) -> None:
+        """Verify unrelated IntegrityError is re-raised and session rolled back."""
+        b_id = uuid.uuid4()
+        inv_id = uuid.uuid4()
+        mock_business_repo.get_by_id.return_value = Business(
+            id=b_id, tax_id="TAX-1", legal_name="Corp", status=BusinessStatus.ACTIVE
+        )
+        mock_invoice_repo.get_by_id.return_value = Invoice(
+            id=inv_id,
+            business_id=b_id,
+            invoice_number="INV-001",
+            debtor_name="Debtor",
+            amount=Decimal("10000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+            status=InvoiceStatus.SUBMITTED,
+        )
+        mock_financing_repo.get_active_by_invoice.return_value = None
+        mock_session.commit.side_effect = IntegrityError(
+            "foreign key constraint", params={}, orig=Exception("fk error")
+        )
+
+        with pytest.raises(IntegrityError):
             financing_service.create_application(
                 business_id=b_id,
                 invoice_id=inv_id,
