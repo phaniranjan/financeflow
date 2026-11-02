@@ -20,7 +20,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from financeflow.db.base import Base
 
 if TYPE_CHECKING:
+    from financeflow.models.audit import FinancingAuditLog
     from financeflow.models.business import Business
+    from financeflow.models.disbursement import Disbursement
     from financeflow.models.invoice import Invoice
 
 
@@ -133,4 +135,11 @@ class FinancingApplication(Base):
     )
     invoice: Mapped["Invoice"] = relationship(
         back_populates="financing_applications",
+    )
+    disbursement: Mapped["Disbursement | None"] = relationship(
+        back_populates="financing_application",
+        uselist=False,
+    )
+    audit_logs: Mapped[list["FinancingAuditLog"]] = relationship(
+        back_populates="financing_application",
     )
