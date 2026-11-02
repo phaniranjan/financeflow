@@ -1,6 +1,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 
 from sqlalchemy import (
     CheckConstraint,
@@ -17,6 +18,17 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from financeflow.db.base import Base
 from financeflow.models.business import Business
+
+
+class InvoiceStatus(StrEnum):
+    """Lifecycle status of an invoice in the financing workflow."""
+
+    DRAFT = "DRAFT"
+    SUBMITTED = "SUBMITTED"
+    APPROVED = "APPROVED"
+    FINANCED = "FINANCED"
+    REJECTED = "REJECTED"
+    PAID = "PAID"
 
 
 class Invoice(Base):
@@ -78,7 +90,7 @@ class Invoice(Base):
     )
     status: Mapped[str] = mapped_column(
         String(32),
-        default="SUBMITTED",
+        default=InvoiceStatus.SUBMITTED.value,
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
