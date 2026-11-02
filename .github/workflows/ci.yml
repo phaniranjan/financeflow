@@ -67,8 +67,7 @@ jobs:
 
       - name: Run Pytest Suite with Coverage
         env:
-          DATABASE_URL: postgresql+asyncpg://test_user:test_secret@localhost:5432/test_db
-          SYNC_DATABASE_URL: postgresql+psycopg://test_user:test_secret@localhost:5432/test_db
+          DATABASE_URL: postgresql+psycopg://test_user:test_secret@localhost:5432/test_db
           ENVIRONMENT: test
         run: |
           pytest --cov=financeflow --cov-report=xml --cov-report=term-missing

@@ -35,8 +35,7 @@ services:
     environment:
       ENVIRONMENT: development
       LOG_LEVEL: INFO
-      DATABASE_URL: postgresql+asyncpg://financeflow_user:financeflow_secret@postgres:5432/financeflow_db
-      SYNC_DATABASE_URL: postgresql+psycopg://financeflow_user:financeflow_secret@postgres:5432/financeflow_db
+      DATABASE_URL: postgresql+psycopg://financeflow_user:financeflow_secret@postgres:5432/financeflow_db
       DISBURSEMENT_SERVICE_BASE_URL: http://mock-disbursement-service:8080
       DISBURSEMENT_SERVICE_API_KEY: docker_mock_disbursement_key
     depends_on:
