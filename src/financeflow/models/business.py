@@ -67,6 +67,4 @@ class Business(Base):
     )
     financing_applications: Mapped[list["FinancingApplication"]] = relationship(
         back_populates="business",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
     )

@@ -71,13 +71,13 @@ class FinancingApplication(Base):
     )
     business_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("businesses.id", ondelete="CASCADE"),
+        ForeignKey("businesses.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
     invoice_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("invoices.id", ondelete="CASCADE"),
+        ForeignKey("invoices.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )

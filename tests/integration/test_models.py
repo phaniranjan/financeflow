@@ -343,15 +343,17 @@ class TestInvoiceAndBusinessPersistence:
         db_session.rollback()
 
     @pytest.mark.integration
-    def test_cascade_delete_removes_financing_applications(self, db_session: Session) -> None:
-        """Verify deleting an invoice cascades to its financing applications."""
+    def test_restrict_delete_prevents_removing_invoice_with_financing(
+        self, db_session: Session
+    ) -> None:
+        """Verify DB foreign key RESTRICT prevents deleting invoice with financing applications."""
         business = Business(tax_id=f"TAX-{uuid.uuid4().hex[:8]}", legal_name="Corp")
         db_session.add(business)
         db_session.flush()
 
         invoice = Invoice(
             business_id=business.id,
-            invoice_number="INV-CASC-001",
+            invoice_number="INV-RST-001",
             debtor_name="Debtor",
             amount=Decimal("10000.00"),
             issue_date=date(2026, 11, 1),
@@ -368,11 +370,43 @@ class TestInvoiceAndBusinessPersistence:
         db_session.add(app)
         db_session.commit()
 
-        app_id = app.id
         db_session.delete(invoice)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    @pytest.mark.integration
+    def test_restrict_delete_prevents_removing_business_with_financing(
+        self, db_session: Session
+    ) -> None:
+        """Verify DB foreign key RESTRICT prevents deleting business with financing applications."""
+        business = Business(tax_id=f"TAX-{uuid.uuid4().hex[:8]}", legal_name="Corp")
+        db_session.add(business)
+        db_session.flush()
+
+        invoice = Invoice(
+            business_id=business.id,
+            invoice_number="INV-RST-BIZ-001",
+            debtor_name="Debtor",
+            amount=Decimal("10000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+        )
+        db_session.add(invoice)
+        db_session.flush()
+
+        app = FinancingApplication(
+            business_id=business.id,
+            invoice_id=invoice.id,
+            requested_amount=Decimal("8000.00"),
+        )
+        db_session.add(app)
         db_session.commit()
 
-        assert db_session.get(FinancingApplication, app_id) is None
+        db_session.delete(business)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
 
     @pytest.mark.integration
     def test_database_enforces_unique_active_financing_application(

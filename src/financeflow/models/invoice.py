@@ -114,6 +114,4 @@ class Invoice(Base):
     )
     financing_applications: Mapped[list["FinancingApplication"]] = relationship(
         back_populates="invoice",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
     )

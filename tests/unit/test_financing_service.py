@@ -601,7 +601,6 @@ class TestFinancingApplicationDecision:
     def test_approve_application_calculation_invariants(
         self,
         financing_service: FinancingService,
-        mock_session: MagicMock,
         mock_financing_repo: MagicMock,
         mock_invoice_repo: MagicMock,
         requested: Decimal,

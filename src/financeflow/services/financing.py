@@ -102,8 +102,8 @@ class FinancingService:
             fee_rate=fee_rate,
             status=FinancingStatus.SUBMITTED.value,
         )
-        self._financing_repo.create(application)
         try:
+            self._financing_repo.create(application)
             self._session.commit()
         except IntegrityError as exc:
             self._session.rollback()
