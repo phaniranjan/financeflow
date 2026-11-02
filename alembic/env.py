@@ -6,6 +6,7 @@ from alembic import context
 from financeflow.core.config import get_settings
 from financeflow.db.base import Base
 from financeflow.models.business import Business  # noqa: F401
+from financeflow.models.financing import FinancingApplication  # noqa: F401
 from financeflow.models.invoice import Invoice  # noqa: F401
 
 # this is the Alembic Config object, which provides

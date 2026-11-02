@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from financeflow.db.base import Base
 
 if TYPE_CHECKING:
+    from financeflow.models.financing import FinancingApplication
     from financeflow.models.invoice import Invoice
 
 
@@ -60,6 +61,11 @@ class Business(Base):
     )
 
     invoices: Mapped[list["Invoice"]] = relationship(
+        back_populates="business",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    financing_applications: Mapped[list["FinancingApplication"]] = relationship(
         back_populates="business",
         cascade="all, delete-orphan",
         passive_deletes=True,

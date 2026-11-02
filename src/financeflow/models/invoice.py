@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -18,6 +19,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from financeflow.db.base import Base
 from financeflow.models.business import Business
+
+if TYPE_CHECKING:
+    from financeflow.models.financing import FinancingApplication
 
 
 class InvoiceStatus(StrEnum):
@@ -107,4 +111,9 @@ class Invoice(Base):
 
     business: Mapped["Business"] = relationship(
         back_populates="invoices",
+    )
+    financing_applications: Mapped[list["FinancingApplication"]] = relationship(
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
