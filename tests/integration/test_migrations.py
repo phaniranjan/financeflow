@@ -1,9 +1,9 @@
 import pytest
-from alembic import command
-from alembic.config import Config
 import sqlalchemy as sa
+from alembic.config import Config
 from sqlalchemy import inspect
 
+from alembic import command
 from financeflow.db.base import Base
 from financeflow.db.session import engine
 

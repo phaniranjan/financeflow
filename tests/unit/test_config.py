@@ -10,8 +10,12 @@ class TestSettingsConfiguration:
     """Unit tests for environment-based configuration and validation."""
 
     @pytest.mark.unit
-    def test_default_settings(self) -> None:
+    def test_default_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify default configuration values."""
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+        monkeypatch.delenv("APP_PORT", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
         settings = Settings()
         assert settings.environment == "development"
         assert settings.log_level == "INFO"
