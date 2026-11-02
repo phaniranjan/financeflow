@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from financeflow.core.config import get_settings
 from financeflow.db.base import Base
 from financeflow.models.business import Business
+from financeflow.models.financing import FinancingApplication, FinancingStatus
 from financeflow.models.invoice import Invoice
 
 settings = get_settings()
@@ -266,3 +267,183 @@ class TestInvoiceAndBusinessPersistence:
         # Both parent and child invoice must no longer exist
         assert db_session.get(Business, business.id) is None
         assert db_session.get(Invoice, invoice_id) is None
+
+    @pytest.mark.integration
+    def test_create_and_retrieve_financing_application(self, db_session: Session) -> None:
+        """Verify persistence and relationships of FinancingApplication."""
+        business = Business(
+            tax_id=f"TAX-FIN-{uuid.uuid4().hex[:8]}",
+            legal_name="Financed Business LLC",
+        )
+        db_session.add(business)
+        db_session.flush()
+
+        invoice = Invoice(
+            business_id=business.id,
+            invoice_number="INV-FIN-001",
+            debtor_name="Debtor G",
+            amount=Decimal("20000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+        )
+        db_session.add(invoice)
+        db_session.flush()
+
+        app = FinancingApplication(
+            business_id=business.id,
+            invoice_id=invoice.id,
+            requested_amount=Decimal("15000.00"),
+            advance_rate=Decimal("0.8000"),
+            fee_rate=Decimal("0.0300"),
+            status=FinancingStatus.SUBMITTED,
+        )
+        db_session.add(app)
+        db_session.commit()
+
+        retrieved = db_session.get(FinancingApplication, app.id)
+        assert retrieved is not None
+        assert retrieved.business_id == business.id
+        assert retrieved.invoice_id == invoice.id
+        assert retrieved.requested_amount == Decimal("15000.00")
+        assert retrieved.advance_rate == Decimal("0.8000")
+        assert retrieved.fee_rate == Decimal("0.0300")
+        assert retrieved.status == FinancingStatus.SUBMITTED
+        assert retrieved.invoice.id == invoice.id
+        assert retrieved.business.id == business.id
+        assert len(invoice.financing_applications) == 1
+
+    @pytest.mark.integration
+    def test_financing_application_constraints_requested_amount_positive(
+        self, db_session: Session
+    ) -> None:
+        """Verify DB check constraint prevents non-positive requested amounts."""
+        business = Business(tax_id=f"TAX-{uuid.uuid4().hex[:8]}", legal_name="Corp")
+        db_session.add(business)
+        db_session.flush()
+
+        invoice = Invoice(
+            business_id=business.id,
+            invoice_number="INV-CK-001",
+            debtor_name="Debtor",
+            amount=Decimal("1000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+        )
+        db_session.add(invoice)
+        db_session.flush()
+
+        bad_app = FinancingApplication(
+            business_id=business.id,
+            invoice_id=invoice.id,
+            requested_amount=Decimal("0.00"),
+        )
+        db_session.add(bad_app)
+        with pytest.raises(IntegrityError, match="ck_financing_requested_amount_positive"):
+            db_session.commit()
+        db_session.rollback()
+
+    @pytest.mark.integration
+    def test_restrict_delete_prevents_removing_invoice_with_financing(
+        self, db_session: Session
+    ) -> None:
+        """Verify DB foreign key RESTRICT prevents deleting invoice with financing applications."""
+        business = Business(tax_id=f"TAX-{uuid.uuid4().hex[:8]}", legal_name="Corp")
+        db_session.add(business)
+        db_session.flush()
+
+        invoice = Invoice(
+            business_id=business.id,
+            invoice_number="INV-RST-001",
+            debtor_name="Debtor",
+            amount=Decimal("10000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+        )
+        db_session.add(invoice)
+        db_session.flush()
+
+        app = FinancingApplication(
+            business_id=business.id,
+            invoice_id=invoice.id,
+            requested_amount=Decimal("8000.00"),
+        )
+        db_session.add(app)
+        db_session.commit()
+
+        db_session.delete(invoice)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    @pytest.mark.integration
+    def test_restrict_delete_prevents_removing_business_with_financing(
+        self, db_session: Session
+    ) -> None:
+        """Verify DB foreign key RESTRICT prevents deleting business with financing applications."""
+        business = Business(tax_id=f"TAX-{uuid.uuid4().hex[:8]}", legal_name="Corp")
+        db_session.add(business)
+        db_session.flush()
+
+        invoice = Invoice(
+            business_id=business.id,
+            invoice_number="INV-RST-BIZ-001",
+            debtor_name="Debtor",
+            amount=Decimal("10000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+        )
+        db_session.add(invoice)
+        db_session.flush()
+
+        app = FinancingApplication(
+            business_id=business.id,
+            invoice_id=invoice.id,
+            requested_amount=Decimal("8000.00"),
+        )
+        db_session.add(app)
+        db_session.commit()
+
+        db_session.delete(business)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()
+
+    @pytest.mark.integration
+    def test_database_enforces_unique_active_financing_application(
+        self, db_session: Session
+    ) -> None:
+        """Verify DB partial unique index prevents concurrent active financing on same invoice."""
+        business = Business(tax_id=f"TAX-{uuid.uuid4().hex[:8]}", legal_name="Corp")
+        db_session.add(business)
+        db_session.flush()
+
+        invoice = Invoice(
+            business_id=business.id,
+            invoice_number="INV-UQ-FIN-001",
+            debtor_name="Debtor",
+            amount=Decimal("10000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+        )
+        db_session.add(invoice)
+        db_session.flush()
+
+        app1 = FinancingApplication(
+            business_id=business.id,
+            invoice_id=invoice.id,
+            requested_amount=Decimal("5000.00"),
+            status=FinancingStatus.SUBMITTED.value,
+        )
+        db_session.add(app1)
+        db_session.commit()
+
+        app2 = FinancingApplication(
+            business_id=business.id,
+            invoice_id=invoice.id,
+            requested_amount=Decimal("6000.00"),
+            status=FinancingStatus.SUBMITTED.value,
+        )
+        db_session.add(app2)
+        with pytest.raises(IntegrityError, match="uq_financing_active_invoice"):
+            db_session.commit()
+        db_session.rollback()

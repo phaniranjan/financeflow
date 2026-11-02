@@ -3,8 +3,8 @@ import sqlalchemy as sa
 from alembic.config import Config
 from sqlalchemy import inspect
 
+import financeflow.models  # noqa: F401
 from alembic import command
-from financeflow.db.base import Base
 from financeflow.db.session import engine
 
 
@@ -18,14 +18,18 @@ def alembic_config():
 @pytest.fixture(autouse=True)
 def clean_db():
     """Ensure database is in a clean state and alembic_version is reset."""
-    Base.metadata.drop_all(bind=engine)
     with engine.connect() as conn:
+        conn.execute(sa.text("DROP TABLE IF EXISTS financing_applications CASCADE;"))
+        conn.execute(sa.text("DROP TABLE IF EXISTS invoices CASCADE;"))
+        conn.execute(sa.text("DROP TABLE IF EXISTS businesses CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS alembic_version CASCADE;"))
         conn.commit()
     yield
     # Clean up after test
-    Base.metadata.drop_all(bind=engine)
     with engine.connect() as conn:
+        conn.execute(sa.text("DROP TABLE IF EXISTS financing_applications CASCADE;"))
+        conn.execute(sa.text("DROP TABLE IF EXISTS invoices CASCADE;"))
+        conn.execute(sa.text("DROP TABLE IF EXISTS businesses CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS alembic_version CASCADE;"))
         conn.commit()
 
@@ -40,6 +44,7 @@ class TestDatabaseMigrations:
         initial_tables = set(inspector.get_table_names())
         assert "businesses" not in initial_tables
         assert "invoices" not in initial_tables
+        assert "financing_applications" not in initial_tables
 
         # 1. Upgrade to head
         command.upgrade(alembic_config, "head")
@@ -48,6 +53,7 @@ class TestDatabaseMigrations:
         upgraded_tables = set(inspector.get_table_names())
         assert "businesses" in upgraded_tables
         assert "invoices" in upgraded_tables
+        assert "financing_applications" in upgraded_tables
 
         # 2. Verify column specifications and constraints
         invoice_columns = {col["name"]: col for col in inspector.get_columns("invoices")}
@@ -57,10 +63,20 @@ class TestDatabaseMigrations:
         assert amount_type.precision == 19
         assert amount_type.scale == 2
 
+        financing_columns = {
+            col["name"]: col for col in inspector.get_columns("financing_applications")
+        }
+        assert "requested_amount" in financing_columns
+        req_type = financing_columns["requested_amount"]["type"]
+        assert isinstance(req_type, sa.Numeric)
+        assert req_type.precision == 19
+        assert req_type.scale == 2
+
         # 3. Clean up / Downgrade back to base
         command.downgrade(alembic_config, "base")
         inspector = inspect(engine)
         downgraded_tables = set(inspector.get_table_names())
+        assert "financing_applications" not in downgraded_tables
         assert "invoices" not in downgraded_tables
         assert "businesses" not in downgraded_tables
 
@@ -68,5 +84,6 @@ class TestDatabaseMigrations:
         command.upgrade(alembic_config, "head")
         inspector = inspect(engine)
         reupgraded_tables = set(inspector.get_table_names())
+        assert "financing_applications" in reupgraded_tables
         assert "invoices" in reupgraded_tables
         assert "businesses" in reupgraded_tables
