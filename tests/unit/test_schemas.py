@@ -45,6 +45,23 @@ class TestInvoiceSchemas:
         assert schema.currency == "EUR"
 
     @pytest.mark.unit
+    def test_invoice_create_rejects_float_amount(self) -> None:
+        """Verify float amounts are rejected at the schema boundary."""
+        with pytest.raises(
+            ValidationError,
+            match="Floating-point values are rejected to avoid precision loss",
+        ):
+            InvoiceCreate(
+                business_id=uuid.uuid4(),
+                invoice_number="INV-FLOAT-001",
+                debtor_name="Acme",
+                amount=1500.50,
+                currency="USD",
+                issue_date=date(2026, 11, 1),
+                due_date=date(2026, 12, 1),
+            )
+
+    @pytest.mark.unit
     @pytest.mark.parametrize("invalid_amount", [Decimal("0.00"), Decimal("-50.00")])
     def test_invoice_create_amount_must_be_positive(self, invalid_amount: Decimal) -> None:
         """Verify non-positive amounts are rejected."""

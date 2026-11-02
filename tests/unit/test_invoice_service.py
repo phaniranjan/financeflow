@@ -4,6 +4,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from financeflow.core.exceptions import (
     BusinessInactiveError,
@@ -12,7 +13,7 @@ from financeflow.core.exceptions import (
     InvalidInvoiceAmountError,
     InvalidInvoiceDateError,
 )
-from financeflow.models.business import Business
+from financeflow.models.business import Business, BusinessStatus
 from financeflow.models.invoice import Invoice
 from financeflow.services.invoice import InvoiceService, get_invoice_service
 
@@ -245,7 +246,10 @@ class TestInvoiceServiceCreation:
         """Verify session.rollback is executed when commit fails unexpectedly."""
         business_id = uuid.uuid4()
         mock_business_repo.get_by_id.return_value = Business(
-            id=business_id, tax_id="TAX-1", legal_name="Corp", status="ACTIVE"
+            id=business_id,
+            tax_id="TAX-1",
+            legal_name="Corp",
+            status=BusinessStatus.ACTIVE,
         )
         mock_invoice_repo.get_by_number.return_value = None
         mock_session.commit.side_effect = RuntimeError("Database connection lost")
@@ -254,6 +258,126 @@ class TestInvoiceServiceCreation:
             invoice_service.create_invoice(
                 business_id=business_id,
                 invoice_number="INV-FAIL-001",
+                debtor_name="Debtor",
+                amount=Decimal("5000.00"),
+                currency="USD",
+                issue_date=date(2026, 11, 1),
+                due_date=date(2026, 12, 1),
+            )
+
+        mock_session.rollback.assert_called_once()
+
+    @pytest.mark.unit
+    def test_create_invoice_integrity_error_translates_to_duplicate_error(
+        self,
+        invoice_service: InvoiceService,
+        mock_business_repo: MagicMock,
+        mock_invoice_repo: MagicMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """Verify DB unique constraint error is translated to DuplicateInvoiceNumberError."""
+        business_id = uuid.uuid4()
+        mock_business_repo.get_by_id.return_value = Business(
+            id=business_id,
+            tax_id="TAX-1",
+            legal_name="Corp",
+            status=BusinessStatus.ACTIVE,
+        )
+        mock_invoice_repo.get_by_number.return_value = None
+        unique_err_msg = (
+            'duplicate key value violates unique constraint '
+            '"uq_invoices_business_id_invoice_number"'
+        )
+        mock_session.commit.side_effect = IntegrityError(
+            statement="INSERT INTO invoices ...",
+            params={},
+            orig=Exception(unique_err_msg),
+        )
+
+        with pytest.raises(
+            DuplicateInvoiceNumberError,
+            match="Invoice number 'INV-RACE-001' already exists for this business",
+        ):
+            invoice_service.create_invoice(
+                business_id=business_id,
+                invoice_number="INV-RACE-001",
+                debtor_name="Debtor",
+                amount=Decimal("5000.00"),
+                currency="USD",
+                issue_date=date(2026, 11, 1),
+                due_date=date(2026, 12, 1),
+            )
+
+        mock_session.rollback.assert_called_once()
+
+    @pytest.mark.unit
+    def test_create_invoice_foreign_key_integrity_error_translates_to_business_not_found(
+        self,
+        invoice_service: InvoiceService,
+        mock_business_repo: MagicMock,
+        mock_invoice_repo: MagicMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """Verify database foreign key IntegrityError is translated to BusinessNotFoundError."""
+        business_id = uuid.uuid4()
+        mock_business_repo.get_by_id.return_value = Business(
+            id=business_id,
+            tax_id="TAX-1",
+            legal_name="Corp",
+            status=BusinessStatus.ACTIVE,
+        )
+        mock_invoice_repo.get_by_number.return_value = None
+        mock_session.commit.side_effect = IntegrityError(
+            statement="INSERT INTO invoices ...",
+            params={},
+            orig=Exception(
+                'insert or update on table "invoices" violates foreign key constraint on businesses'
+            ),
+        )
+
+        with pytest.raises(
+            BusinessNotFoundError,
+            match=f"Business {business_id} not found",
+        ):
+            invoice_service.create_invoice(
+                business_id=business_id,
+                invoice_number="INV-FK-001",
+                debtor_name="Debtor",
+                amount=Decimal("5000.00"),
+                currency="USD",
+                issue_date=date(2026, 11, 1),
+                due_date=date(2026, 12, 1),
+            )
+
+        mock_session.rollback.assert_called_once()
+
+    @pytest.mark.unit
+    def test_create_invoice_unrecognized_integrity_error_reraises(
+        self,
+        invoice_service: InvoiceService,
+        mock_business_repo: MagicMock,
+        mock_invoice_repo: MagicMock,
+        mock_session: MagicMock,
+    ) -> None:
+        """Verify unrecognized database IntegrityError rolls back and is re-raised."""
+        business_id = uuid.uuid4()
+        mock_business_repo.get_by_id.return_value = Business(
+            id=business_id,
+            tax_id="TAX-1",
+            legal_name="Corp",
+            status=BusinessStatus.ACTIVE,
+        )
+        mock_invoice_repo.get_by_number.return_value = None
+        mock_session.commit.side_effect = IntegrityError(
+            statement="INSERT INTO invoices ...",
+            params={},
+            orig=Exception("check constraint failure unexpected"),
+        )
+
+        with pytest.raises(IntegrityError):
+            invoice_service.create_invoice(
+                business_id=business_id,
+                invoice_number="INV-CHECK-001",
                 debtor_name="Debtor",
                 amount=Decimal("5000.00"),
                 currency="USD",

@@ -16,6 +16,17 @@ class InvoiceCreate(BaseModel):
     issue_date: date
     due_date: date
 
+    @field_validator("amount", mode="before")
+    @classmethod
+    def reject_float_amounts(cls, v: object) -> object:
+        """Reject float types at API boundary to prevent floating-point precision loss."""
+        if isinstance(v, float):
+            raise ValueError(
+                "Floating-point values are rejected to avoid precision loss. "
+                "Pass monetary amounts as strings (e.g. '1500.50') or Decimals."
+            )
+        return v
+
     @field_validator("invoice_number", "debtor_name")
     @classmethod
     def strip_and_validate_non_empty(cls, v: str) -> str:

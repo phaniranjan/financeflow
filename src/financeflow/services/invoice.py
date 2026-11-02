@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from financeflow.core.exceptions import (
@@ -13,7 +14,8 @@ from financeflow.core.exceptions import (
     InvalidInvoiceDateError,
 )
 from financeflow.db.session import get_db
-from financeflow.models.invoice import Invoice
+from financeflow.models.business import BusinessStatus
+from financeflow.models.invoice import Invoice, InvoiceStatus
 from financeflow.repositories.business import BusinessRepository
 from financeflow.repositories.invoice import InvoiceRepository
 
@@ -48,7 +50,7 @@ class InvoiceService:
             raise BusinessNotFoundError(f"Business {business_id} not found")
 
         # 2. Verify business is ACTIVE
-        if business.status != "ACTIVE":
+        if business.status != BusinessStatus.ACTIVE:
             raise BusinessInactiveError(f"Business {business_id} is not active")
 
         # 3. Verify positive financial amount
@@ -75,11 +77,24 @@ class InvoiceService:
             currency=currency,
             issue_date=issue_date,
             due_date=due_date,
-            status="SUBMITTED",
+            status=InvoiceStatus.SUBMITTED.value,
         )
         self._invoice_repo.create(invoice)
         try:
             self._session.commit()
+        except IntegrityError as exc:
+            self._session.rollback()
+            error_msg = str(exc).lower()
+            if (
+                "uq_invoices_business_id_invoice_number" in error_msg
+                or "unique constraint" in error_msg
+            ):
+                raise DuplicateInvoiceNumberError(
+                    f"Invoice number '{invoice_number}' already exists for this business"
+                ) from exc
+            if "businesses" in error_msg or "foreign key" in error_msg:
+                raise BusinessNotFoundError(f"Business {business_id} not found") from exc
+            raise
         except Exception:
             self._session.rollback()
             raise

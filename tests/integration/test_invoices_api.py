@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 from fastapi.testclient import TestClient
@@ -249,3 +250,52 @@ class TestInvoiceApiIntegration:
         response = client.get(f"/api/v1/invoices?business_id={random_id}")
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
+
+    @pytest.mark.integration
+    def test_create_invoice_rejects_float_payload(
+        self, client: TestClient, active_business: uuid.UUID
+    ) -> None:
+        """Verify API rejects raw JSON floating-point numbers to protect decimal precision."""
+        response = client.post(
+            "/api/v1/invoices",
+            json={
+                "business_id": str(active_business),
+                "invoice_number": "INV-FLOAT-ERR",
+                "debtor_name": "Float Debtor",
+                "amount": 1500.50,
+                "currency": "USD",
+                "issue_date": "2026-11-01",
+                "due_date": "2026-12-01",
+            },
+        )
+        assert response.status_code == 422
+        assert "Floating-point values are rejected" in str(response.json())
+
+    @pytest.mark.integration
+    def test_concurrent_invoice_creation_race_condition(
+        self, active_business: uuid.UUID
+    ) -> None:
+        """Verify concurrent requests for the same invoice are resolved by PostgreSQL."""
+        invoice_number = f"INV-RACE-{uuid.uuid4().hex[:6]}"
+        payload = {
+            "business_id": str(active_business),
+            "invoice_number": invoice_number,
+            "debtor_name": "Concurrent Debtor",
+            "amount": "25000.00",
+            "currency": "USD",
+            "issue_date": "2026-11-01",
+            "due_date": "2026-12-01",
+        }
+
+        def post_invoice() -> int:
+            with TestClient(app) as local_client:
+                res = local_client.post("/api/v1/invoices", json=payload)
+                return int(res.status_code)
+
+        num_threads = 5
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [executor.submit(post_invoice) for _ in range(num_threads)]
+            status_codes = [f.result() for f in as_completed(futures)]
+
+        assert status_codes.count(201) == 1
+        assert status_codes.count(409) == num_threads - 1
