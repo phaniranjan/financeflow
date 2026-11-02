@@ -272,9 +272,7 @@ class TestInvoiceApiIntegration:
         assert "Floating-point values are rejected" in str(response.json())
 
     @pytest.mark.integration
-    def test_concurrent_invoice_creation_race_condition(
-        self, active_business: uuid.UUID
-    ) -> None:
+    def test_concurrent_invoice_creation_race_condition(self, active_business: uuid.UUID) -> None:
         """Verify concurrent requests for the same invoice are resolved by PostgreSQL."""
         invoice_number = f"INV-RACE-{uuid.uuid4().hex[:6]}"
         payload = {

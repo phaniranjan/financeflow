@@ -285,7 +285,7 @@ class TestInvoiceServiceCreation:
         )
         mock_invoice_repo.get_by_number.return_value = None
         unique_err_msg = (
-            'duplicate key value violates unique constraint '
+            "duplicate key value violates unique constraint "
             '"uq_invoices_business_id_invoice_number"'
         )
         mock_session.commit.side_effect = IntegrityError(
