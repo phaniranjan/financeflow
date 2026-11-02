@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: financeflow-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: financeflow_user
+      POSTGRES_PASSWORD: financeflow_secret
+      POSTGRES_DB: financeflow_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U financeflow_user -d financeflow_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mock-disbursement-service:
+    image: wiremock/wiremock:3.9.1
+    container_name: financeflow-mock-disbursement
+    ports:
+      - "8080:8080"
+    command: ["--verbose"]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: financeflow-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql+psycopg://financeflow_user:financeflow_secret@postgres:5432/financeflow_db
+      DISBURSEMENT_SERVICE_BASE_URL: http://mock-disbursement-service:8080
+      DISBURSEMENT_SERVICE_API_KEY: docker_mock_disbursement_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-disbursement-service:
+        condition: service_started
+    volumes:
+      - ./src:/app/src
+
+volumes:
+  postgres_data:
