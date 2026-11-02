@@ -28,3 +28,27 @@ class InvalidInvoiceAmountError(FinanceFlowError):
 
 class InvalidInvoiceDateError(FinanceFlowError):
     """Raised when invoice due date precedes issue date."""
+
+
+class FinancingApplicationNotFoundError(EntityNotFoundError):
+    """Raised when a referenced FinancingApplication cannot be found."""
+
+
+class InvoiceNotEligibleError(FinanceFlowError):
+    """Raised when an invoice is not eligible for financing."""
+
+
+class DuplicateFinancingError(FinanceFlowError):
+    """Raised when an active financing application already exists for an invoice."""
+
+
+class InvalidFinancingAmountError(FinanceFlowError):
+    """Raised when requested financing amount is invalid or exceeds invoice total."""
+
+
+class InvalidFinancingTermsError(FinanceFlowError):
+    """Raised when advance rate or fee rate violates acceptable bounds."""
+
+
+class InvalidFinancingStateTransitionError(FinanceFlowError):
+    """Raised when an illegal lifecycle transition is attempted on a financing application."""
