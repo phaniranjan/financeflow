@@ -52,4 +52,5 @@ class Business(Base):
     invoices: Mapped[list["Invoice"]] = relationship(
         back_populates="business",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )

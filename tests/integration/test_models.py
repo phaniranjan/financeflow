@@ -1,9 +1,10 @@
+import concurrent.futures
 import uuid
 from datetime import date
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -190,3 +191,78 @@ class TestInvoiceAndBusinessPersistence:
         # Confirm the business was NOT committed
         retrieved_business = db_session.query(Business).filter_by(tax_id=unique_tax_id).first()
         assert retrieved_business is None
+
+    @pytest.mark.integration
+    def test_concurrent_duplicate_invoice_creation(self, db_engine: Engine) -> None:
+        """Verify concurrent invoice creations with identical (business_id, invoice_number)
+
+        result in exactly one commit success and concurrent collisions rejected by
+        unique constraint violation.
+        """
+        with Session(bind=db_engine) as session:
+            business = Business(
+                tax_id=f"TAX-{uuid.uuid4().hex[:8]}",
+                legal_name="Concurrent Race Corp",
+            )
+            session.add(business)
+            session.commit()
+            business_id = business.id
+
+        def attempt_insert() -> bool:
+            with Session(bind=db_engine) as thread_session:
+                try:
+                    invoice = Invoice(
+                        business_id=business_id,
+                        invoice_number="CONCURRENT-INV-001",
+                        debtor_name="Concurrent Debtor",
+                        amount=Decimal("10000.00"),
+                        issue_date=date(2026, 11, 1),
+                        due_date=date(2026, 12, 1),
+                    )
+                    thread_session.add(invoice)
+                    thread_session.commit()
+                    return True
+                except IntegrityError:
+                    thread_session.rollback()
+                    return False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(attempt_insert) for _ in range(5)]
+            results = [f.result() for f in futures]
+
+        success_count = sum(1 for r in results if r is True)
+        collision_count = sum(1 for r in results if r is False)
+
+        assert success_count == 1
+        assert collision_count == 4
+
+    @pytest.mark.integration
+    def test_cascade_delete_removes_associated_invoices(self, db_session: Session) -> None:
+        """Verify deleting a Business cascades and removes associated Invoices."""
+        business = Business(
+            tax_id=f"TAX-{uuid.uuid4().hex[:8]}",
+            legal_name="Cascade Parent Corp",
+        )
+        db_session.add(business)
+        db_session.flush()
+
+        invoice = Invoice(
+            business_id=business.id,
+            invoice_number="CASCADE-001",
+            debtor_name="Debtor F",
+            amount=Decimal("5000.00"),
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+        )
+        db_session.add(invoice)
+        db_session.commit()
+
+        invoice_id = invoice.id
+
+        # Delete parent business
+        db_session.delete(business)
+        db_session.commit()
+
+        # Both parent and child invoice must no longer exist
+        assert db_session.get(Business, business.id) is None
+        assert db_session.get(Invoice, invoice_id) is None
