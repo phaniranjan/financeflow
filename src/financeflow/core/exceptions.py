@@ -52,3 +52,27 @@ class InvalidFinancingTermsError(FinanceFlowError):
 
 class InvalidFinancingStateTransitionError(FinanceFlowError):
     """Raised when an illegal lifecycle transition is attempted on a financing application."""
+
+
+class DisbursementNotFoundError(EntityNotFoundError):
+    """Raised when a referenced Disbursement cannot be found."""
+
+
+class InvalidDisbursementStateError(FinanceFlowError):
+    """Raised when a disbursement is attempted on an unapproved or ineligible application."""
+
+
+class DuplicateDisbursementError(FinanceFlowError):
+    """Raised when an application is already disbursed or an idempotency key conflict occurs."""
+
+
+class DisbursementExecutionError(FinanceFlowError):
+    """Raised when payment gateway execution fails or times out."""
+
+
+class LedgerImbalanceError(FinanceFlowError):
+    """Raised when total debits do not equal total credits in a ledger transaction."""
+
+
+class LedgerAccountNotFoundError(EntityNotFoundError):
+    """Raised when a referenced ledger account does not exist in chart of accounts."""
