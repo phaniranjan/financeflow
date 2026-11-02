@@ -538,6 +538,118 @@ class TestFinancingApplicationDecision:
         mock_session.commit.assert_called_once()
 
     @pytest.mark.unit
+    @pytest.mark.parametrize(
+        (
+            "requested",
+            "advance_rate",
+            "fee_rate",
+            "expected_approved",
+            "expected_fee",
+            "expected_net",
+        ),
+        [
+            # Zero fee
+            (
+                Decimal("10000.00"),
+                Decimal("0.8000"),
+                Decimal("0.0000"),
+                Decimal("8000.00"),
+                Decimal("0.00"),
+                Decimal("8000.00"),
+            ),
+            # Maximum advance rate (100%) and maximum fee (100%)
+            (
+                Decimal("5000.00"),
+                Decimal("1.0000"),
+                Decimal("1.0000"),
+                Decimal("5000.00"),
+                Decimal("5000.00"),
+                Decimal("0.00"),
+            ),
+            # 100% advance rate, standard fee
+            (
+                Decimal("5000.00"),
+                Decimal("1.0000"),
+                Decimal("0.0300"),
+                Decimal("5000.00"),
+                Decimal("150.00"),
+                Decimal("4850.00"),
+            ),
+            # Fractional rounding boundary:
+            # 1234.56 * 0.8333 = 1028.758848 -> 1028.76
+            # 1028.76 * 0.0277 = 28.496652 -> 28.50
+            # 1028.76 - 28.50 = 1000.26
+            (
+                Decimal("1234.56"),
+                Decimal("0.8333"),
+                Decimal("0.0277"),
+                Decimal("1028.76"),
+                Decimal("28.50"),
+                Decimal("1000.26"),
+            ),
+            # Small fractional values
+            (
+                Decimal("100.05"),
+                Decimal("0.8000"),
+                Decimal("0.0500"),
+                Decimal("80.04"),
+                Decimal("4.00"),
+                Decimal("76.04"),
+            ),
+        ],
+    )
+    def test_approve_application_calculation_invariants(
+        self,
+        financing_service: FinancingService,
+        mock_session: MagicMock,
+        mock_financing_repo: MagicMock,
+        mock_invoice_repo: MagicMock,
+        requested: Decimal,
+        advance_rate: Decimal,
+        fee_rate: Decimal,
+        expected_approved: Decimal,
+        expected_fee: Decimal,
+        expected_net: Decimal,
+    ) -> None:
+        """Verify net_disbursement = approved - fee holds across rates and rounding boundaries."""
+        app_id = uuid.uuid4()
+        inv_id = uuid.uuid4()
+        b_id = uuid.uuid4()
+
+        app = FinancingApplication(
+            id=app_id,
+            business_id=b_id,
+            invoice_id=inv_id,
+            requested_amount=requested,
+            advance_rate=advance_rate,
+            fee_rate=fee_rate,
+            status=FinancingStatus.SUBMITTED,
+        )
+        invoice = Invoice(
+            id=inv_id,
+            business_id=b_id,
+            invoice_number="INV-001",
+            debtor_name="Debtor",
+            amount=requested * 2,
+            issue_date=date(2026, 11, 1),
+            due_date=date(2026, 12, 1),
+            status=InvoiceStatus.SUBMITTED,
+        )
+        mock_financing_repo.get_by_id.return_value = app
+        mock_invoice_repo.get_by_id.return_value = invoice
+
+        approved_app = financing_service.approve_application(app_id)
+
+        assert approved_app.approved_amount == expected_approved
+        assert approved_app.fee_amount == expected_fee
+        assert approved_app.net_disbursement_amount == expected_net
+        # Invariant check: net_disbursement_amount MUST strictly equal approved_amount - fee_amount
+        assert (
+            approved_app.net_disbursement_amount
+            == approved_app.approved_amount - approved_app.fee_amount
+        )
+
+    @pytest.mark.unit
     def test_approve_application_not_found(
         self, financing_service: FinancingService, mock_financing_repo: MagicMock
     ) -> None:
