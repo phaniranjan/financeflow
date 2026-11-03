@@ -2,6 +2,10 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from financeflow.api.dependencies.auth import (
+    AuthenticatedTenant,
+    get_current_tenant,
+)
 from financeflow.core.exceptions import (
     BusinessInactiveError,
     BusinessNotFoundError,
@@ -33,8 +37,14 @@ router = APIRouter(prefix="/financing", tags=["Financing"])
 def create_financing_application(
     payload: FinancingApplicationCreate,
     service: FinancingService = Depends(get_financing_service),
+    tenant: AuthenticatedTenant = Depends(get_current_tenant),
 ) -> FinancingApplicationResponse:
     """Submit a financing application against an existing submitted invoice."""
+    if payload.business_id != tenant.business_id and not tenant.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Cannot submit financing for a different business tenant",
+        )
     try:
         application = service.create_application(
             business_id=payload.business_id,
@@ -74,6 +84,7 @@ def create_financing_application(
 def get_financing_application(
     application_id: uuid.UUID,
     service: FinancingService = Depends(get_financing_service),
+    tenant: AuthenticatedTenant = Depends(get_current_tenant),
 ) -> FinancingApplicationResponse:
     """Retrieve detailed state of a financing application."""
     application = service.get_application(application_id)
@@ -81,6 +92,14 @@ def get_financing_application(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Financing application {application_id} not found",
+        )
+    if application.business_id != tenant.business_id and not tenant.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Access denied: Financing application does not "
+                "belong to the authenticated business tenant"
+            ),
         )
     return FinancingApplicationResponse.model_validate(application)
 
@@ -91,15 +110,26 @@ def get_financing_application(
     summary="List financing applications for a business",
 )
 def list_financing_applications(
-    business_id: uuid.UUID = Query(..., description="ID of the business"),
+    business_id: uuid.UUID | None = Query(
+        None, description="ID of the business (defaults to authenticated tenant)"
+    ),
     limit: int = Query(50, ge=1, le=100, description="Page limit"),
     offset: int = Query(0, ge=0, description="Page offset"),
     service: FinancingService = Depends(get_financing_service),
+    tenant: AuthenticatedTenant = Depends(get_current_tenant),
 ) -> FinancingApplicationListResponse:
-    """Retrieve paginated financing applications for a business."""
+    """Retrieve paginated financing applications for the authenticated business tenant."""
+    effective_business_id = business_id or tenant.business_id
+    if effective_business_id != tenant.business_id and not tenant.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Access denied: Cannot query financing applications for a different business tenant"
+            ),
+        )
     try:
         applications = service.list_applications_by_business(
-            business_id=business_id,
+            business_id=effective_business_id,
             limit=limit,
             offset=offset,
         )
@@ -125,8 +155,19 @@ def list_financing_applications(
 def approve_financing_application(
     application_id: uuid.UUID,
     service: FinancingService = Depends(get_financing_service),
+    tenant: AuthenticatedTenant = Depends(get_current_tenant),
 ) -> FinancingApplicationResponse:
     """Approve financing application and transition invoice status."""
+    app_record = service.get_application(application_id)
+    if (
+        app_record is not None
+        and app_record.business_id != tenant.business_id
+        and not tenant.is_admin
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Cannot approve financing for a different business tenant",
+        )
     try:
         application = service.approve_application(application_id)
         return FinancingApplicationResponse.model_validate(application)
@@ -151,8 +192,19 @@ def reject_financing_application(
     application_id: uuid.UUID,
     decision: FinancingDecisionRequest | None = None,
     service: FinancingService = Depends(get_financing_service),
+    tenant: AuthenticatedTenant = Depends(get_current_tenant),
 ) -> FinancingApplicationResponse:
     """Reject financing application with optional reason."""
+    app_record = service.get_application(application_id)
+    if (
+        app_record is not None
+        and app_record.business_id != tenant.business_id
+        and not tenant.is_admin
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Cannot reject financing for a different business tenant",
+        )
     reason = decision.reason if decision else None
     try:
         application = service.reject_application(application_id, reason=reason)

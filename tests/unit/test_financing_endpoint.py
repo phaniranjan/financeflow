@@ -42,13 +42,15 @@ class TestFinancingEndpointExceptionMapping:
         mock_service = MagicMock()
         mock_service.create_application.side_effect = exc
 
+        biz_id = str(uuid.uuid4())
         app.dependency_overrides[get_financing_service] = lambda: mock_service
         try:
             with TestClient(app) as client:
+                client.headers["X-API-Key"] = f"test-key-{biz_id}"
                 response = client.post(
                     "/api/v1/financing",
                     json={
-                        "business_id": str(uuid.uuid4()),
+                        "business_id": biz_id,
                         "invoice_id": str(uuid.uuid4()),
                         "requested_amount": "5000.00",
                         "advance_rate": "0.8000",
@@ -69,6 +71,7 @@ class TestFinancingEndpointExceptionMapping:
         app.dependency_overrides[get_financing_service] = lambda: mock_service
         try:
             with TestClient(app) as client:
+                client.headers["X-API-Key"] = "test-key-00000000-0000-0000-0000-000000000000"
                 response = client.get(f"/api/v1/financing/{uuid.uuid4()}")
                 assert response.status_code == 404
         finally:
@@ -82,10 +85,12 @@ class TestFinancingEndpointExceptionMapping:
             "Business missing"
         )
 
+        b_id = str(uuid.uuid4())
         app.dependency_overrides[get_financing_service] = lambda: mock_service
         try:
             with TestClient(app) as client:
-                response = client.get(f"/api/v1/financing?business_id={uuid.uuid4()}")
+                client.headers["X-API-Key"] = f"test-key-{b_id}"
+                response = client.get(f"/api/v1/financing?business_id={b_id}")
                 assert response.status_code == 404
                 assert response.json()["detail"] == "Business missing"
         finally:
@@ -104,11 +109,13 @@ class TestFinancingEndpointExceptionMapping:
     ) -> None:
         """Verify approve endpoint exception mappings."""
         mock_service = MagicMock()
+        mock_service.get_application.return_value = None
         mock_service.approve_application.side_effect = exc
 
         app.dependency_overrides[get_financing_service] = lambda: mock_service
         try:
             with TestClient(app) as client:
+                client.headers["X-API-Key"] = "test-key-00000000-0000-0000-0000-000000000000"
                 response = client.post(f"/api/v1/financing/{uuid.uuid4()}/approve")
                 assert response.status_code == expected_status
                 assert response.json()["detail"] == str(exc)
@@ -128,11 +135,13 @@ class TestFinancingEndpointExceptionMapping:
     ) -> None:
         """Verify reject endpoint exception mappings."""
         mock_service = MagicMock()
+        mock_service.get_application.return_value = None
         mock_service.reject_application.side_effect = exc
 
         app.dependency_overrides[get_financing_service] = lambda: mock_service
         try:
             with TestClient(app) as client:
+                client.headers["X-API-Key"] = "test-key-00000000-0000-0000-0000-000000000000"
                 response = client.post(
                     f"/api/v1/financing/{uuid.uuid4()}/reject",
                     json={"reason": "Rejected"},

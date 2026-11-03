@@ -27,6 +27,7 @@ class FinancingRepository:
                 select(FinancingApplication)
                 .where(FinancingApplication.id == application_id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
             return self.session.scalars(stmt).first()
         return self.session.get(FinancingApplication, application_id)

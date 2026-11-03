@@ -30,10 +30,11 @@ def db_engine() -> Generator[Engine, None, None]:
 
 
 @pytest.fixture
-def client(db_engine: Engine) -> Generator[TestClient, None, None]:
-    """Provide a FastAPI TestClient configured for the test database."""
+def client(db_engine: Engine, active_business: uuid.UUID) -> Generator[TestClient, None, None]:
+    """Provide a FastAPI TestClient configured with authenticated headers for active_business."""
     assert db_engine is not None
     with TestClient(app) as test_client:
+        test_client.headers["X-API-Key"] = f"test-key-{active_business}"
         yield test_client
 
 
@@ -262,7 +263,10 @@ class TestFinancingApiIntegration:
     def test_list_financing_applications_business_not_found(self, client: TestClient) -> None:
         """Verify listing applications for non-existent business returns 404."""
         random_id = str(uuid.uuid4())
-        response = client.get(f"/api/v1/financing?business_id={random_id}")
+        response = client.get(
+            f"/api/v1/financing?business_id={random_id}",
+            headers={"X-API-Key": f"test-key-{random_id}"},
+        )
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
 
@@ -499,13 +503,15 @@ class TestFinancingApiIntegration:
         submitted_invoice: uuid.UUID,
     ) -> None:
         """Verify 404 when submitting financing for non-existent business."""
+        fake_biz = str(uuid.uuid4())
         response = client.post(
             "/api/v1/financing",
             json={
-                "business_id": str(uuid.uuid4()),
+                "business_id": fake_biz,
                 "invoice_id": str(submitted_invoice),
                 "requested_amount": "10000.00",
             },
+            headers={"X-API-Key": f"test-key-{fake_biz}"},
         )
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
@@ -558,6 +564,7 @@ class TestFinancingApiIntegration:
                 "invoice_id": str(inv_id),
                 "requested_amount": "5000.00",
             },
+            headers={"X-API-Key": f"test-key-{suspended_business}"},
         )
         assert response.status_code == 400
         assert "not active" in response.json()["detail"]
@@ -697,6 +704,7 @@ class TestFinancingApiIntegration:
 
         def post_financing() -> int:
             with TestClient(app) as local_client:
+                local_client.headers["X-API-Key"] = f"test-key-{active_business}"
                 res = local_client.post("/api/v1/financing", json=payload)
                 return int(res.status_code)
 

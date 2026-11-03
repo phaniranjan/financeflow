@@ -23,13 +23,15 @@ class TestInvoiceEndpointExceptionMapping:
             "Invoice amount must be positive"
         )
 
+        biz_id = str(uuid.uuid4())
         app.dependency_overrides[get_invoice_service] = lambda: mock_service
         try:
             with TestClient(app) as client:
+                client.headers["X-API-Key"] = f"test-key-{biz_id}"
                 response = client.post(
                     "/api/v1/invoices",
                     json={
-                        "business_id": str(uuid.uuid4()),
+                        "business_id": biz_id,
                         "invoice_number": "INV-MOCK-001",
                         "debtor_name": "Debtor",
                         "amount": "100.00",
@@ -51,13 +53,15 @@ class TestInvoiceEndpointExceptionMapping:
             "Due date cannot precede invoice issue date"
         )
 
+        biz_id = str(uuid.uuid4())
         app.dependency_overrides[get_invoice_service] = lambda: mock_service
         try:
             with TestClient(app) as client:
+                client.headers["X-API-Key"] = f"test-key-{biz_id}"
                 response = client.post(
                     "/api/v1/invoices",
                     json={
-                        "business_id": str(uuid.uuid4()),
+                        "business_id": biz_id,
                         "invoice_number": "INV-MOCK-002",
                         "debtor_name": "Debtor",
                         "amount": "100.00",
