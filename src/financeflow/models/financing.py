@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from financeflow.models.business import Business
     from financeflow.models.disbursement import Disbursement
     from financeflow.models.invoice import Invoice
+    from financeflow.models.settlement import Settlement
 
 
 class FinancingStatus(StrEnum):
@@ -34,6 +35,7 @@ class FinancingStatus(StrEnum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     DISBURSED = "DISBURSED"
+    SETTLED = "SETTLED"
 
 
 class FinancingApplication(Base):
@@ -137,6 +139,10 @@ class FinancingApplication(Base):
         back_populates="financing_applications",
     )
     disbursement: Mapped["Disbursement | None"] = relationship(
+        back_populates="financing_application",
+        uselist=False,
+    )
+    settlement: Mapped["Settlement | None"] = relationship(
         back_populates="financing_application",
         uselist=False,
     )
