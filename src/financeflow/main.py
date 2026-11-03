@@ -23,7 +23,7 @@ settings = get_settings()
 app = FastAPI(
     title="FinanceFlow API",
     description="Simulated financial invoice financing and reconciliation platform",
-    version="0.1.0",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
