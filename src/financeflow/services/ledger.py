@@ -58,20 +58,22 @@ class LedgerService:
     def post_disbursement_transaction(
         self,
         application_id: uuid.UUID,
-        approved_amount: Decimal,
+        receivable_amount: Decimal,
+        reserve_amount: Decimal,
         fee_amount: Decimal,
         net_amount: Decimal,
     ) -> LedgerTransaction:
-        """Post a balanced 3-legged double-entry transaction for a financing disbursement."""
+        """Post a balanced transaction recognizing receivables, reserve, fee, and cash."""
         # Enforce fundamental double-entry balance invariant: Debits == Credits
-        if approved_amount != (fee_amount + net_amount):
+        if receivable_amount != (reserve_amount + fee_amount + net_amount):
             raise LedgerImbalanceError(
-                f"Ledger imbalance: approved ({approved_amount}) != "
-                f"fee ({fee_amount}) + net ({net_amount})"
+                f"Ledger imbalance: receivable ({receivable_amount}) != "
+                f"reserve ({reserve_amount}) + fee ({fee_amount}) + net ({net_amount})"
             )
 
         accounts = self.ensure_standard_accounts()
         rec_acc = accounts[RECEIVABLES_ACCOUNT_NUMBER]
+        res_acc = accounts[RESERVE_PAYABLE_ACCOUNT_NUMBER]
         fee_acc = accounts[FEE_REVENUE_ACCOUNT_NUMBER]
         cash_acc = accounts[CASH_ACCOUNT_NUMBER]
 
@@ -83,17 +85,28 @@ class LedgerService:
             )
         )
 
-        # 1. Debit: Receivables asset increases by approved advance
+        # 1. Debit: Receivables asset increases by gross receivable amount
         self._ledger_repo.create_entry(
             LedgerEntry(
                 transaction_id=tx.id,
                 account_id=rec_acc.id,
                 entry_type=EntryType.DEBIT.value,
-                amount=approved_amount,
+                amount=receivable_amount,
             )
         )
 
-        # 2. Credit: Fee revenue increases by financing fee
+        # 2. Credit: Reserve payable liability owed to business
+        if reserve_amount > Decimal("0.00"):
+            self._ledger_repo.create_entry(
+                LedgerEntry(
+                    transaction_id=tx.id,
+                    account_id=res_acc.id,
+                    entry_type=EntryType.CREDIT.value,
+                    amount=reserve_amount,
+                )
+            )
+
+        # 3. Credit: Fee revenue increases by financing fee
         self._ledger_repo.create_entry(
             LedgerEntry(
                 transaction_id=tx.id,
@@ -103,7 +116,7 @@ class LedgerService:
             )
         )
 
-        # 3. Credit: Cash asset decreases by net disbursement payout
+        # 4. Credit: Cash asset decreases by net disbursement payout
         self._ledger_repo.create_entry(
             LedgerEntry(
                 transaction_id=tx.id,
@@ -119,20 +132,16 @@ class LedgerService:
         self,
         application_id: uuid.UUID,
         repayment_amount: Decimal,
-        principal_amount: Decimal,
-        reserve_amount: Decimal,
     ) -> LedgerTransaction:
-        """Post a balanced double-entry transaction for debtor invoice collection."""
-        if repayment_amount != (principal_amount + reserve_amount):
+        """Post a balanced 2-legged double-entry transaction for debtor collection."""
+        if repayment_amount <= Decimal("0.00"):
             raise LedgerImbalanceError(
-                f"Ledger imbalance: repayment ({repayment_amount}) != "
-                f"principal ({principal_amount}) + reserve ({reserve_amount})"
+                f"Ledger imbalance: repayment amount must be positive, got {repayment_amount}"
             )
 
         accounts = self.ensure_standard_accounts()
         cash_acc = accounts[CASH_ACCOUNT_NUMBER]
         rec_acc = accounts[RECEIVABLES_ACCOUNT_NUMBER]
-        res_acc = accounts[RESERVE_PAYABLE_ACCOUNT_NUMBER]
 
         tx = self._ledger_repo.create_transaction(
             LedgerTransaction(
@@ -142,7 +151,7 @@ class LedgerService:
             )
         )
 
-        # 1. Debit Cash: Cash asset increases by total debtor collection
+        # 1. Debit Cash: Cash asset increases by debtor collection
         self._ledger_repo.create_entry(
             LedgerEntry(
                 transaction_id=tx.id,
@@ -152,23 +161,13 @@ class LedgerService:
             )
         )
 
-        # 2. Credit Factoring Receivables: Extinguish advance receivable
+        # 2. Credit Factoring Receivables: Extinguish factoring receivable
         self._ledger_repo.create_entry(
             LedgerEntry(
                 transaction_id=tx.id,
                 account_id=rec_acc.id,
                 entry_type=EntryType.CREDIT.value,
-                amount=principal_amount,
-            )
-        )
-
-        # 3. Credit Customer Reserve Payable: Record reserve liability owed to business
-        self._ledger_repo.create_entry(
-            LedgerEntry(
-                transaction_id=tx.id,
-                account_id=res_acc.id,
-                entry_type=EntryType.CREDIT.value,
-                amount=reserve_amount,
+                amount=repayment_amount,
             )
         )
 

@@ -23,11 +23,23 @@ class SettlementRepository:
         return self.session.get(Settlement, settlement_id)
 
     def get_by_application_id(self, application_id: uuid.UUID) -> Settlement | None:
-        """Find settlement associated with a specific financing application."""
+        """Find latest settlement associated with a specific financing application."""
         stmt = (
-            select(Settlement).where(Settlement.financing_application_id == application_id).limit(1)
+            select(Settlement)
+            .where(Settlement.financing_application_id == application_id)
+            .order_by(Settlement.created_at.desc())
+            .limit(1)
         )
         return self.session.scalars(stmt).first()
+
+    def list_by_application_id(self, application_id: uuid.UUID) -> list[Settlement]:
+        """List all settlement records for a specific financing application."""
+        stmt = (
+            select(Settlement)
+            .where(Settlement.financing_application_id == application_id)
+            .order_by(Settlement.created_at.asc())
+        )
+        return list(self.session.scalars(stmt).all())
 
     def get_by_idempotency_key(self, idempotency_key: str) -> Settlement | None:
         """Find settlement by unique client idempotency key."""

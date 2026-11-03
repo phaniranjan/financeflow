@@ -197,22 +197,22 @@ class TestSettlementModelAndRepositoryIntegration:
         db_session.rollback()
 
     @pytest.mark.integration
-    def test_settlement_unique_application_id_constraint(
+    def test_multiple_settlements_allowed_for_application(
         self, db_session: Session, disbursed_application: tuple[uuid.UUID, uuid.UUID]
     ) -> None:
-        """Verify only one settlement can exist per financing application."""
+        """Verify multiple collection records can exist for the same financing application."""
         app_id, inv_id = disbursed_application
         repo = SettlementRepository(db_session)
 
         s1 = Settlement(
             financing_application_id=app_id,
             invoice_id=inv_id,
-            repayment_amount=Decimal("50000.00"),
-            principal_repaid=Decimal("40000.00"),
-            reserve_amount=Decimal("10000.00"),
+            repayment_amount=Decimal("30000.00"),
+            principal_repaid=Decimal("24000.00"),
+            reserve_amount=Decimal("6000.00"),
             settlement_fee=Decimal("0.00"),
-            net_reserve_refunded=Decimal("10000.00"),
-            status=SettlementStatus.COMPLETED.value,
+            net_reserve_refunded=Decimal("0.00"),
+            status=SettlementStatus.SHORTFALL.value,
             idempotency_key=f"idemp-s1-{uuid.uuid4().hex}",
         )
         repo.create(s1)
@@ -221,14 +221,18 @@ class TestSettlementModelAndRepositoryIntegration:
         s2 = Settlement(
             financing_application_id=app_id,
             invoice_id=inv_id,
-            repayment_amount=Decimal("50000.00"),
-            principal_repaid=Decimal("40000.00"),
-            reserve_amount=Decimal("10000.00"),
+            repayment_amount=Decimal("20000.00"),
+            principal_repaid=Decimal("16000.00"),
+            reserve_amount=Decimal("4000.00"),
             settlement_fee=Decimal("0.00"),
             net_reserve_refunded=Decimal("10000.00"),
             status=SettlementStatus.COMPLETED.value,
             idempotency_key=f"idemp-s2-{uuid.uuid4().hex}",
         )
-        with pytest.raises(IntegrityError, match="ix_settlements_financing_application_id"):
-            repo.create(s2)
-        db_session.rollback()
+        repo.create(s2)
+        db_session.commit()
+
+        settlements = repo.list_by_application_id(app_id)
+        assert len(settlements) == 2
+        assert settlements[0].id == s1.id
+        assert settlements[1].id == s2.id

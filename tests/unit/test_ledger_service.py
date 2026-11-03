@@ -96,7 +96,8 @@ class TestPostDisbursementTransaction:
     ) -> None:
         """Verify balanced 3-legged double-entry transaction posting."""
         app_id = uuid.uuid4()
-        approved = Decimal("40000.00")
+        receivable = Decimal("50000.00")
+        reserve = Decimal("10000.00")
         fee = Decimal("1200.00")
         net = Decimal("38800.00")
 
@@ -154,7 +155,8 @@ class TestPostDisbursementTransaction:
 
         tx = ledger_service.post_disbursement_transaction(
             application_id=app_id,
-            approved_amount=approved,
+            receivable_amount=receivable,
+            reserve_amount=reserve,
             fee_amount=fee,
             net_amount=net,
         )
@@ -162,14 +164,22 @@ class TestPostDisbursementTransaction:
         assert tx is not None
         assert tx.transaction_type == "FINANCING_DISBURSEMENT"
         assert tx.reference_id == app_id
-        assert len(created_entries) == 3
+        assert len(created_entries) == 4
 
         # 1. Debit Receivables
         debit_entry = next(e for e in created_entries if e.entry_type == EntryType.DEBIT.value)
         assert debit_entry.account_id == acc_rec.id
-        assert debit_entry.amount == approved
+        assert debit_entry.amount == receivable
 
-        # 2. Credit Fee Revenue
+        # 2. Credit Reserve Payable
+        reserve_entry = next(
+            e
+            for e in created_entries
+            if e.account_id == acc_reserve.id and e.entry_type == EntryType.CREDIT.value
+        )
+        assert reserve_entry.amount == reserve
+
+        # 3. Credit Fee Revenue
         fee_entry = next(
             e
             for e in created_entries
@@ -177,7 +187,7 @@ class TestPostDisbursementTransaction:
         )
         assert fee_entry.amount == fee
 
-        # 3. Credit Cash
+        # 4. Credit Cash
         cash_entry = next(
             e
             for e in created_entries
@@ -191,14 +201,16 @@ class TestPostDisbursementTransaction:
     ) -> None:
         """Posting an imbalanced transaction raises LedgerImbalanceError."""
         app_id = uuid.uuid4()
-        approved = Decimal("40000.00")
+        receivable = Decimal("50000.00")
+        reserve = Decimal("10000.00")
         fee = Decimal("1200.00")
-        net = Decimal("35000.00")  # Imbalanced: 40000 != 1200 + 35000 (36200)
+        net = Decimal("35000.00")  # Imbalanced: 50000 != 10000 + 1200 + 35000 (46200)
 
         with pytest.raises(LedgerImbalanceError) as exc_info:
             ledger_service.post_disbursement_transaction(
                 application_id=app_id,
-                approved_amount=approved,
+                receivable_amount=receivable,
+                reserve_amount=reserve,
                 fee_amount=fee,
                 net_amount=net,
             )
@@ -215,8 +227,6 @@ class TestPostSettlementTransaction:
         """Verify balanced debtor repayment transaction posting."""
         app_id = uuid.uuid4()
         repayment = Decimal("50000.00")
-        principal = Decimal("40000.00")
-        reserve = Decimal("10000.00")
 
         acc_cash = LedgerAccount(
             id=uuid.uuid4(),
@@ -265,14 +275,12 @@ class TestPostSettlementTransaction:
         tx = ledger_service.post_settlement_transaction(
             application_id=app_id,
             repayment_amount=repayment,
-            principal_amount=principal,
-            reserve_amount=reserve,
         )
 
         assert tx is not None
         assert tx.transaction_type == "FINANCING_SETTLEMENT"
         assert tx.reference_id == app_id
-        assert len(created_entries) == 3
+        assert len(created_entries) == 2
 
         # 1. Debit Cash
         debit_entry = next(e for e in created_entries if e.entry_type == EntryType.DEBIT.value)
@@ -285,28 +293,18 @@ class TestPostSettlementTransaction:
             for e in created_entries
             if e.account_id == acc_rec.id and e.entry_type == EntryType.CREDIT.value
         )
-        assert rec_entry.amount == principal
-
-        # 3. Credit Reserve Payable
-        res_entry = next(
-            e
-            for e in created_entries
-            if e.account_id == acc_reserve.id and e.entry_type == EntryType.CREDIT.value
-        )
-        assert res_entry.amount == reserve
+        assert rec_entry.amount == repayment
 
     @pytest.mark.unit
     def test_post_settlement_transaction_imbalance_raises(
         self, ledger_service: LedgerService
     ) -> None:
-        """Raises LedgerImbalanceError if repayment != principal + reserve."""
+        """Raises LedgerImbalanceError if repayment amount is non-positive."""
         app_id = uuid.uuid4()
         with pytest.raises(LedgerImbalanceError):
             ledger_service.post_settlement_transaction(
                 application_id=app_id,
-                repayment_amount=Decimal("50000.00"),
-                principal_amount=Decimal("40000.00"),
-                reserve_amount=Decimal("8000.00"),  # Imbalanced: 50k != 40k + 8k
+                repayment_amount=Decimal("0.00"),
             )
 
 

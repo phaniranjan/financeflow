@@ -73,7 +73,7 @@ def get_settlement_by_application(
     application_id: uuid.UUID,
     service: SettlementService = Depends(get_settlement_service),
 ) -> SettlementResponse:
-    """Retrieve settlement associated with a specific financing application."""
+    """Retrieve latest settlement associated with a specific financing application."""
     settlement = service.get_settlement_by_application(application_id)
     if settlement is None:
         raise HTTPException(
@@ -81,6 +81,21 @@ def get_settlement_by_application(
             detail=f"Settlement for application {application_id} not found",
         )
     return SettlementResponse.model_validate(settlement)
+
+
+@router.get(
+    "/financing/{application_id}/settlements",
+    response_model=list[SettlementResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List all settlement records for a financing application",
+)
+def list_settlements_by_application(
+    application_id: uuid.UUID,
+    service: SettlementService = Depends(get_settlement_service),
+) -> list[SettlementResponse]:
+    """Retrieve all settlement records associated with a specific financing application."""
+    settlements = service.get_settlements_by_application(application_id)
+    return [SettlementResponse.model_validate(s) for s in settlements]
 
 
 @router.get(

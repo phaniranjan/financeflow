@@ -224,11 +224,12 @@ class TestExecuteSettlement:
         app = FinancingApplication(
             id=app_id,
             status=FinancingStatus.DISBURSED.value,
+            requested_amount=Decimal("50000.00"),
             approved_amount=Decimal("40000.00"),
         )
         mock_settlement_repo.get_by_idempotency_key.return_value = None
         mock_financing_repo.get_by_id.return_value = app
-        mock_settlement_repo.get_by_application_id.return_value = None
+        mock_settlement_repo.list_by_application_id.return_value = []
 
         with pytest.raises(InvalidSettlementAmountError):
             settlement_service.execute_settlement(
@@ -257,6 +258,7 @@ class TestExecuteSettlement:
             id=app_id,
             invoice_id=inv_id,
             status=FinancingStatus.DISBURSED.value,
+            requested_amount=Decimal("50000.00"),
             approved_amount=Decimal("40000.00"),
         )
         invoice = Invoice(
@@ -267,6 +269,7 @@ class TestExecuteSettlement:
         mock_settlement_repo.get_by_idempotency_key.return_value = None
         mock_financing_repo.get_by_id.return_value = app
         mock_settlement_repo.get_by_application_id.return_value = None
+        mock_settlement_repo.list_by_application_id.return_value = []
         mock_invoice_repo.get_by_id.return_value = invoice
 
         def mock_create_settlement(s: Settlement) -> Settlement:
@@ -301,8 +304,6 @@ class TestExecuteSettlement:
         mock_ledger_service.post_settlement_transaction.assert_called_once_with(
             application_id=app_id,
             repayment_amount=Decimal("50000.00"),
-            principal_amount=Decimal("40000.00"),
-            reserve_amount=Decimal("10000.00"),
         )
         mock_ledger_service.post_reserve_release_transaction.assert_called_once_with(
             application_id=app_id,
@@ -342,6 +343,7 @@ class TestExecuteSettlement:
             id=app_id,
             invoice_id=inv_id,
             status=FinancingStatus.DISBURSED.value,
+            requested_amount=Decimal("50000.00"),
             approved_amount=Decimal("40000.00"),
         )
         invoice = Invoice(id=inv_id, status=InvoiceStatus.FINANCED.value)
@@ -349,6 +351,7 @@ class TestExecuteSettlement:
         mock_settlement_repo.get_by_idempotency_key.return_value = None
         mock_financing_repo.get_by_id.return_value = app
         mock_settlement_repo.get_by_application_id.return_value = None
+        mock_settlement_repo.list_by_application_id.return_value = []
         mock_invoice_repo.get_by_id.return_value = invoice
 
         def mock_create(s: Settlement) -> Settlement:
@@ -359,7 +362,7 @@ class TestExecuteSettlement:
 
         result = settlement_service.execute_settlement(
             application_id=app_id,
-            repayment_amount=Decimal("35000.00"),  # Less than 40k principal
+            repayment_amount=Decimal("35000.00"),  # Less than 50k obligation
             idempotency_key="idemp-shortfall",
         )
 
@@ -367,12 +370,12 @@ class TestExecuteSettlement:
         assert result.principal_repaid == Decimal("35000.00")
         assert result.reserve_amount == Decimal("0.00")
         assert result.net_reserve_refunded == Decimal("0.00")
+        assert app.status == FinancingStatus.PARTIALLY_SETTLED.value
+        assert invoice.status == InvoiceStatus.FINANCED.value
 
         mock_ledger_service.post_settlement_transaction.assert_called_once_with(
             application_id=app_id,
             repayment_amount=Decimal("35000.00"),
-            principal_amount=Decimal("35000.00"),
-            reserve_amount=Decimal("0.00"),
         )
         mock_ledger_service.post_reserve_release_transaction.assert_not_called()
         mock_session.commit.assert_called_once()
@@ -392,11 +395,12 @@ class TestExecuteSettlement:
             id=app_id,
             invoice_id=uuid.uuid4(),
             status=FinancingStatus.DISBURSED.value,
+            requested_amount=Decimal("50000.00"),
             approved_amount=Decimal("40000.00"),
         )
         mock_settlement_repo.get_by_idempotency_key.return_value = None
         mock_financing_repo.get_by_id.return_value = app
-        mock_settlement_repo.get_by_application_id.return_value = None
+        mock_settlement_repo.list_by_application_id.return_value = []
         mock_invoice_repo.get_by_id.return_value = Invoice(id=app.invoice_id)
 
         orig_exc = Exception(
@@ -427,11 +431,12 @@ class TestExecuteSettlement:
             id=app_id,
             status=FinancingStatus.DISBURSED.value,
             invoice_id=uuid.uuid4(),
+            requested_amount=Decimal("50000.00"),
             approved_amount=Decimal("40000.00"),
         )
         mock_settlement_repo.get_by_idempotency_key.return_value = None
         mock_financing_repo.get_by_id.return_value = app
-        mock_settlement_repo.get_by_application_id.return_value = None
+        mock_settlement_repo.list_by_application_id.return_value = []
         mock_invoice_repo.get_by_id.return_value = Invoice(id=app.invoice_id)
 
         orig_exc = Exception("check constraint violation ck_some_constraint")
@@ -460,11 +465,12 @@ class TestExecuteSettlement:
             id=app_id,
             invoice_id=uuid.uuid4(),
             status=FinancingStatus.DISBURSED.value,
+            requested_amount=Decimal("50000.00"),
             approved_amount=Decimal("40000.00"),
         )
         mock_settlement_repo.get_by_idempotency_key.return_value = None
         mock_financing_repo.get_by_id.return_value = app
-        mock_settlement_repo.get_by_application_id.return_value = None
+        mock_settlement_repo.list_by_application_id.return_value = []
         mock_invoice_repo.get_by_id.return_value = Invoice(id=app.invoice_id)
 
         mock_settlement_repo.create.side_effect = RuntimeError("DB down")
@@ -506,6 +512,22 @@ class TestSettlementRetrieval:
         mock_settlement_repo.get_by_application_id.return_value = s
 
         assert settlement_service.get_settlement_by_application(app_id) == s
+
+    @pytest.mark.unit
+    def test_get_settlements_by_application(
+        self,
+        settlement_service: SettlementService,
+        mock_settlement_repo: MagicMock,
+    ) -> None:
+        """Retrieves list of settlements by financing application ID."""
+        app_id = uuid.uuid4()
+        settlements = [
+            Settlement(id=uuid.uuid4(), financing_application_id=app_id),
+            Settlement(id=uuid.uuid4(), financing_application_id=app_id),
+        ]
+        mock_settlement_repo.list_by_application_id.return_value = settlements
+
+        assert settlement_service.get_settlements_by_application(app_id) == settlements
 
 
 class TestGetSettlementServiceDependency:

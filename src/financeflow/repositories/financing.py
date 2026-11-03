@@ -18,8 +18,17 @@ class FinancingRepository:
         self.session.flush()
         return application
 
-    def get_by_id(self, application_id: uuid.UUID) -> FinancingApplication | None:
-        """Retrieve a financing application by its primary key UUID."""
+    def get_by_id(
+        self, application_id: uuid.UUID, for_update: bool = False
+    ) -> FinancingApplication | None:
+        """Retrieve a financing application by its primary key UUID, optionally with FOR UPDATE."""
+        if for_update:
+            stmt = (
+                select(FinancingApplication)
+                .where(FinancingApplication.id == application_id)
+                .with_for_update()
+            )
+            return self.session.scalars(stmt).first()
         return self.session.get(FinancingApplication, application_id)
 
     def list_by_business(
@@ -47,6 +56,7 @@ class FinancingRepository:
             FinancingStatus.SUBMITTED.value,
             FinancingStatus.APPROVED.value,
             FinancingStatus.DISBURSED.value,
+            FinancingStatus.PARTIALLY_SETTLED.value,
         ]
         stmt = (
             select(FinancingApplication)

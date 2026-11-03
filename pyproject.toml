@@ -69,6 +69,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_return_any = true
 plugins = ["pydantic.mypy"]
+mypy_path = ["src"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -83,3 +84,4 @@ markers = [
     "unit: Isolated unit tests with mocks and memory stores",
     "integration: Integration tests with real PostgreSQL database",
 ]
+

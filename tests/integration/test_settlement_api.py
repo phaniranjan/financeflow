@@ -210,6 +210,135 @@ class TestSettlementIntegration:
         assert recon_data["discrepancy"] == "0.00"
 
     @pytest.mark.integration
+    def test_multiple_partial_collections_lifecycle_and_reconciliation(
+        self,
+        client: TestClient,
+        db_engine,
+        active_business: uuid.UUID,
+        submitted_invoice: uuid.UUID,
+    ) -> None:
+        """Integration test for Fix 1 & 2: Multiple collections, deferred reserve, full zeroing."""
+        # 1. Create and disburse application
+        create_resp = client.post(
+            "/api/v1/financing",
+            json={
+                "business_id": str(active_business),
+                "invoice_id": str(submitted_invoice),
+                "requested_amount": "50000.00",
+                "advance_rate": "0.8000",
+                "fee_rate": "0.0300",
+            },
+        )
+        assert create_resp.status_code == 201
+        app_id = create_resp.json()["id"]
+
+        approve_resp = client.post(f"/api/v1/financing/{app_id}/approve", json={})
+        assert approve_resp.status_code == 200
+
+        disb_resp = client.post(
+            f"/api/v1/financing/{app_id}/disburse",
+            json={
+                "recipient_account": "ACC-PARTIAL-DISB",
+                "idempotency_key": f"idemp-disb-part-{uuid.uuid4().hex}",
+            },
+        )
+        assert disb_resp.status_code == 201
+
+        # 2. First partial payment: $30,000.00 of $50,000.00
+        p1_resp = client.post(
+            f"/api/v1/financing/{app_id}/settle",
+            json={
+                "repayment_amount": "30000.00",
+                "settlement_fee": "0.00",
+                "idempotency_key": f"idemp-p1-{uuid.uuid4().hex}",
+            },
+        )
+        assert p1_resp.status_code == 200
+        p1_data = p1_resp.json()
+        assert p1_data["status"] == "SHORTFALL"
+        assert p1_data["repayment_amount"] == "30000.00"
+        assert p1_data["principal_repaid"] == "30000.00"
+        assert p1_data["reserve_amount"] == "0.00"
+        assert p1_data["net_reserve_refunded"] == "0.00"
+
+        # Verify DB state after payment 1
+        with Session(bind=db_engine) as session:
+            app_e = session.get(FinancingApplication, uuid.UUID(app_id))
+            assert app_e is not None
+            assert app_e.status == FinancingStatus.PARTIALLY_SETTLED.value
+
+            inv_e = session.get(Invoice, submitted_invoice)
+            assert inv_e is not None
+            assert inv_e.status == InvoiceStatus.FINANCED.value
+
+        # Check ledger balances after payment 1: Reserve payable still intact ($10,000)
+        acc_resp1 = client.get("/api/v1/ledger/accounts")
+        assert acc_resp1.status_code == 200
+        accs1 = {a["account_number"]: a for a in acc_resp1.json()}
+        assert accs1["1200"]["balance"] == "20000.00"  # $50k - $30k = $20k outstanding
+        assert accs1["2100"]["balance"] == "10000.00"  # Reserve liability remains intact
+
+        # 3. Overpayment attempt: $25,000 when only $20,000 is outstanding
+        overpay_resp = client.post(
+            f"/api/v1/financing/{app_id}/settle",
+            json={
+                "repayment_amount": "25000.00",
+                "idempotency_key": f"idemp-overpay-{uuid.uuid4().hex}",
+            },
+        )
+        assert overpay_resp.status_code == 400
+        assert "exceeds outstanding receivable" in overpay_resp.json()["detail"]
+
+        # 4. Final partial payment: $20,000.00 with $100 fee completing obligation
+        p2_resp = client.post(
+            f"/api/v1/financing/{app_id}/settle",
+            json={
+                "repayment_amount": "20000.00",
+                "settlement_fee": "100.00",
+                "idempotency_key": f"idemp-p2-{uuid.uuid4().hex}",
+            },
+        )
+        assert p2_resp.status_code == 200
+        p2_data = p2_resp.json()
+        assert p2_data["status"] == "COMPLETED"
+        assert p2_data["repayment_amount"] == "20000.00"
+        assert p2_data["principal_repaid"] == "10000.00"
+        assert p2_data["reserve_amount"] == "10000.00"
+        assert p2_data["settlement_fee"] == "100.00"
+        assert p2_data["net_reserve_refunded"] == "9900.00"
+
+        # Verify DB state after final payment
+        with Session(bind=db_engine) as session:
+            app_e = session.get(FinancingApplication, uuid.UUID(app_id))
+            assert app_e is not None
+            assert app_e.status == FinancingStatus.SETTLED.value
+
+            inv_e = session.get(Invoice, submitted_invoice)
+            assert inv_e is not None
+            assert inv_e.status == InvoiceStatus.PAID.value
+
+        # Check settlements list endpoint
+        list_resp = client.get(f"/api/v1/financing/{app_id}/settlements")
+        assert list_resp.status_code == 200
+        settlements_list = list_resp.json()
+        assert len(settlements_list) == 2
+        assert settlements_list[0]["id"] == p1_data["id"]
+        assert settlements_list[1]["id"] == p2_data["id"]
+
+        # Check ledger balances after final payment: Zeroed!
+        acc_resp2 = client.get("/api/v1/ledger/accounts")
+        assert acc_resp2.status_code == 200
+        accs2 = {a["account_number"]: a for a in acc_resp2.json()}
+        assert accs2["1200"]["balance"] == "0.00"
+        assert accs2["2100"]["balance"] == "0.00"
+
+        # Trial balance reconciliation check
+        rec_resp2 = client.get("/api/v1/ledger/reconciliation")
+        assert rec_resp2.status_code == 200
+        assert rec_resp2.json()["is_balanced"] is True
+        assert rec_resp2.json()["discrepancy"] == "0.00"
+
+    @pytest.mark.integration
     def test_idempotent_settlement_replay(
         self,
         client: TestClient,

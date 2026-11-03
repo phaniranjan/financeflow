@@ -66,7 +66,7 @@ class Settlement(Base):
         UUID(as_uuid=True),
         ForeignKey("financing_applications.id", ondelete="RESTRICT"),
         nullable=False,
-        unique=True,
+        unique=False,
         index=True,
     )
     invoice_id: Mapped[uuid.UUID] = mapped_column(
@@ -127,7 +127,7 @@ class Settlement(Base):
     # Relationships
     financing_application: Mapped["FinancingApplication"] = relationship(
         "FinancingApplication",
-        back_populates="settlement",
+        back_populates="settlements",
     )
     invoice: Mapped["Invoice"] = relationship(
         "Invoice",
