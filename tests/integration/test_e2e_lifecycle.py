@@ -65,6 +65,8 @@ class TestEndToEndFactoringLifecycle:
             session.commit()
             supplier_id = supplier.id
 
+        client.headers["X-API-Key"] = f"test-key-{supplier_id}"
+
         inv_number = f"INV-E2E-{uuid.uuid4().hex[:8]}"
         inv_resp = client.post(
             "/api/v1/invoices",

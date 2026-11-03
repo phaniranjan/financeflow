@@ -15,6 +15,7 @@ from financeflow.integrations.disbursement.provider import (
     DisbursementResult,
     DisbursementStatus,
 )
+from financeflow.integrations.disbursement.simulated import SimulatedDisbursementProvider
 from financeflow.models.financing import FinancingApplication, FinancingStatus
 from financeflow.services.disbursement import DisbursementService
 from financeflow.services.financing import FinancingService
@@ -181,6 +182,75 @@ class TestReliabilityEdgeCases:
             )
 
     @pytest.mark.unit
+    def test_disbursement_retry_recovers_from_prior_commit_failure_without_duplicate_charge(
+        self,
+    ) -> None:
+        """Verify retry does not re-debit if DB commit fails after provider transfers funds."""
+        session = MagicMock()
+        financing_repo = MagicMock()
+        disbursement_repo = MagicMock()
+        invoice_repo = MagicMock()
+        ledger_service = MagicMock()
+        audit_repo = MagicMock()
+        provider = SimulatedDisbursementProvider()
+
+        app_id = uuid.uuid4()
+        application = FinancingApplication(
+            id=app_id,
+            business_id=uuid.uuid4(),
+            invoice_id=uuid.uuid4(),
+            requested_amount=Decimal("50000.00"),
+            approved_amount=Decimal("40000.00"),
+            fee_amount=Decimal("1200.00"),
+            net_disbursement_amount=Decimal("38800.00"),
+            status=FinancingStatus.APPROVED.value,
+        )
+        financing_repo.get_by_id.return_value = application
+        disbursement_repo.get_by_idempotency_key.return_value = None
+        disbursement_repo.get_by_application_id.return_value = None
+
+        service = DisbursementService(
+            session=session,
+            financing_repo=financing_repo,
+            disbursement_repo=disbursement_repo,
+            invoice_repo=invoice_repo,
+            ledger_service=ledger_service,
+            provider=provider,
+            audit_repo=audit_repo,
+        )
+
+        # When session.rollback() is called, attached application resets to APPROVED
+        session.rollback.side_effect = lambda: setattr(
+            application, "status", FinancingStatus.APPROVED.value
+        )
+
+        # First attempt: session.commit raises an error simulating DB crash/timeout
+        session.commit.side_effect = RuntimeError("Database commit failed unexpectedly")
+
+        with pytest.raises(RuntimeError, match="Database commit failed unexpectedly"):
+            service.execute_disbursement(
+                application_id=app_id,
+                recipient_account="ACC-RETRY-TEST",
+                idempotency_key="idemp-retry-crash-key",
+            )
+
+        # Provider recorded the transaction in its durable cache
+        assert "idemp-retry-crash-key" in provider._idempotency_cache
+        first_tx_id = provider._idempotency_cache["idemp-retry-crash-key"].provider_transaction_id
+
+        # Second attempt (client retries with the same idempotency key)
+        session.commit.side_effect = None  # DB recovered
+        disb = service.execute_disbursement(
+            application_id=app_id,
+            recipient_account="ACC-RETRY-TEST",
+            idempotency_key="idemp-retry-crash-key",
+        )
+
+        # Must reuse the same provider transaction id without second charge
+        assert disb.provider_transaction_id == first_tx_id
+        assert disb.status == DisbursementStatus.COMPLETED.value
+
+    @pytest.mark.unit
     def test_settlement_rejects_idempotency_key_payload_mismatch(self) -> None:
         """Verify reusing an idempotency key with different payload raises duplicate error."""
         session = MagicMock()
@@ -196,6 +266,7 @@ class TestReliabilityEdgeCases:
         existing_settlement = MagicMock()
         existing_settlement.financing_application_id = app_id
         existing_settlement.repayment_amount = Decimal("30000.00")
+        existing_settlement.settlement_fee = Decimal("0.00")
         existing_settlement.idempotency_key = "settle-idemp-1"
         settlement_repo.get_by_idempotency_key.return_value = existing_settlement
 
@@ -229,6 +300,16 @@ class TestReliabilityEdgeCases:
             service.execute_settlement(
                 application_id=other_app_id,
                 repayment_amount=Decimal("30000.00"),
+                idempotency_key="settle-idemp-1",
+            )
+
+        # Mismatched settlement_fee: must raise
+        existing_settlement.settlement_fee = Decimal("100.00")
+        with pytest.raises(DuplicateSettlementError, match="different parameters"):
+            service.execute_settlement(
+                application_id=app_id,
+                repayment_amount=Decimal("30000.00"),
+                settlement_fee=Decimal("500.00"),
                 idempotency_key="settle-idemp-1",
             )
 

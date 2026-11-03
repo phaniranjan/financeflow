@@ -3,8 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from financeflow.api.dependencies.auth import (
-    get_authenticated_business,
-    verify_api_key,
+    AuthenticatedTenant,
+    get_current_tenant,
 )
 from financeflow.core.exceptions import (
     BusinessInactiveError,
@@ -28,11 +28,10 @@ router = APIRouter(prefix="/invoices", tags=["Invoices"])
 def create_invoice(
     payload: InvoiceCreate,
     service: InvoiceService = Depends(get_invoice_service),
-    tenant_id: uuid.UUID | None = Depends(get_authenticated_business),
-    _api_key: str | None = Depends(verify_api_key),
+    tenant: AuthenticatedTenant = Depends(get_current_tenant),
 ) -> InvoiceResponse:
-    """Register a new invoice under an active business."""
-    if tenant_id is not None and payload.business_id != tenant_id:
+    """Register a new invoice under the authenticated business tenant."""
+    if payload.business_id != tenant.business_id and not tenant.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Cannot create invoice for a different business tenant",
@@ -67,8 +66,7 @@ def create_invoice(
 def get_invoice(
     invoice_id: uuid.UUID,
     service: InvoiceService = Depends(get_invoice_service),
-    tenant_id: uuid.UUID | None = Depends(get_authenticated_business),
-    _api_key: str | None = Depends(verify_api_key),
+    tenant: AuthenticatedTenant = Depends(get_current_tenant),
 ) -> InvoiceResponse:
     """Retrieve details for a specific invoice."""
     invoice = service.get_invoice(invoice_id)
@@ -77,7 +75,7 @@ def get_invoice(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Invoice {invoice_id} not found",
         )
-    if tenant_id is not None and invoice.business_id != tenant_id:
+    if invoice.business_id != tenant.business_id and not tenant.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Invoice does not belong to the authenticated business tenant",
@@ -92,22 +90,24 @@ def get_invoice(
     summary="List invoices for a business",
 )
 def list_invoices(
-    business_id: uuid.UUID = Query(..., description="Business ID owning the invoices"),
+    business_id: uuid.UUID | None = Query(
+        None, description="Business ID owning the invoices (defaults to authenticated tenant)"
+    ),
     limit: int = Query(100, ge=1, le=1000, description="Max records to return"),
     offset: int = Query(0, ge=0, description="Records to skip"),
     service: InvoiceService = Depends(get_invoice_service),
-    tenant_id: uuid.UUID | None = Depends(get_authenticated_business),
-    _api_key: str | None = Depends(verify_api_key),
+    tenant: AuthenticatedTenant = Depends(get_current_tenant),
 ) -> InvoiceListResponse:
-    """List paginated invoices for a specified business."""
-    if tenant_id is not None and business_id != tenant_id:
+    """List paginated invoices for the authenticated business tenant."""
+    effective_business_id = business_id or tenant.business_id
+    if effective_business_id != tenant.business_id and not tenant.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Cannot query invoices for a different business tenant",
         )
     try:
         invoices = service.list_invoices_by_business(
-            business_id=business_id,
+            business_id=effective_business_id,
             limit=limit,
             offset=offset,
         )

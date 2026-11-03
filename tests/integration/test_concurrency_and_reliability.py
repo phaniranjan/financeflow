@@ -45,10 +45,12 @@ def db_engine():
 
 
 @pytest.fixture
-def client(db_engine) -> TestClient:
+def client(db_engine, active_business: uuid.UUID) -> TestClient:
     """Provide a FastAPI TestClient configured for the test database."""
     assert db_engine is not None
-    return TestClient(app)
+    test_client = TestClient(app)
+    test_client.headers["X-API-Key"] = f"test-key-{active_business}"
+    return test_client
 
 
 @pytest.fixture
@@ -173,8 +175,10 @@ class TestConcurrencyAndReliabilityIntegration:
         app_id = app_resp.json()["id"]
 
         def send_approval(_i: int) -> int:
-            resp = client.post(f"/api/v1/financing/{app_id}/approve", json={})
-            return resp.status_code
+            with TestClient(app) as thread_client:
+                thread_client.headers["X-API-Key"] = f"test-key-{active_business}"
+                resp = thread_client.post(f"/api/v1/financing/{app_id}/approve", json={})
+                return resp.status_code
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(send_approval, i) for i in range(5)]
@@ -184,9 +188,9 @@ class TestConcurrencyAndReliabilityIntegration:
         assert status_codes.count(400) == 4
 
         with Session(bind=db_engine) as session:
-            app = session.get(FinancingApplication, uuid.UUID(app_id))
-            assert app is not None
-            assert app.status == FinancingStatus.APPROVED.value
+            app_record = session.get(FinancingApplication, uuid.UUID(app_id))
+            assert app_record is not None
+            assert app_record.status == FinancingStatus.APPROVED.value
 
     @pytest.mark.integration
     def test_provider_network_failure_returns_502_and_preserves_application_state(

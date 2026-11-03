@@ -26,10 +26,11 @@ def db_engine() -> Generator[Engine, None, None]:
 
 
 @pytest.fixture
-def client(db_engine: Engine) -> Generator[TestClient, None, None]:
-    """Provide a FastAPI TestClient configured for the test database."""
+def client(db_engine: Engine, active_business: uuid.UUID) -> Generator[TestClient, None, None]:
+    """Provide a FastAPI TestClient configured with authenticated headers for active_business."""
     assert db_engine is not None
     with TestClient(app) as test_client:
+        test_client.headers["X-API-Key"] = f"test-key-{active_business}"
         yield test_client
 
 
@@ -131,7 +132,11 @@ class TestInvoiceApiIntegration:
             "issue_date": "2026-11-01",
             "due_date": "2026-12-01",
         }
-        response = client.post("/api/v1/invoices", json=payload)
+        response = client.post(
+            "/api/v1/invoices",
+            json=payload,
+            headers={"X-API-Key": f"test-key-{random_id}"},
+        )
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
 
@@ -149,7 +154,11 @@ class TestInvoiceApiIntegration:
             "issue_date": "2026-11-01",
             "due_date": "2026-12-01",
         }
-        response = client.post("/api/v1/invoices", json=payload)
+        response = client.post(
+            "/api/v1/invoices",
+            json=payload,
+            headers={"X-API-Key": f"test-key-{suspended_business}"},
+        )
         assert response.status_code == 400
         assert "not active" in response.json()["detail"]
 
@@ -247,7 +256,10 @@ class TestInvoiceApiIntegration:
     def test_list_invoices_business_not_found_returns_404(self, client: TestClient) -> None:
         """Verify listing invoices for non-existent business returns 404 Not Found."""
         random_id = str(uuid.uuid4())
-        response = client.get(f"/api/v1/invoices?business_id={random_id}")
+        response = client.get(
+            f"/api/v1/invoices?business_id={random_id}",
+            headers={"X-API-Key": f"test-key-{random_id}"},
+        )
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
 
@@ -287,6 +299,7 @@ class TestInvoiceApiIntegration:
 
         def post_invoice() -> int:
             with TestClient(app) as local_client:
+                local_client.headers["X-API-Key"] = f"test-key-{active_business}"
                 res = local_client.post("/api/v1/invoices", json=payload)
                 return int(res.status_code)
 

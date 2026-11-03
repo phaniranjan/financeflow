@@ -36,10 +36,12 @@ def db_engine():
 
 
 @pytest.fixture
-def client(db_engine) -> TestClient:
+def client(db_engine, active_business: uuid.UUID) -> TestClient:
     """Provide a FastAPI TestClient configured for the test database."""
     assert db_engine is not None
-    return TestClient(app)
+    test_client = TestClient(app)
+    test_client.headers["X-API-Key"] = f"test-key-{active_business}"
+    return test_client
 
 
 @pytest.fixture
@@ -351,6 +353,7 @@ class TestDisbursementIntegration:
         """Concurrent disburse requests on same application: exactly 1 succeeds, others 409."""
         # 1. Setup approved application
         with TestClient(app) as test_client:
+            test_client.headers["X-API-Key"] = f"test-key-{active_business}"
             create_resp = test_client.post(
                 "/api/v1/financing",
                 json={
@@ -373,6 +376,7 @@ class TestDisbursementIntegration:
         # 2. Fire 5 concurrent requests with distinct idempotency keys
         def call_disburse(idx: int) -> int:
             with TestClient(app) as thread_client:
+                thread_client.headers["X-API-Key"] = f"test-key-{active_business}"
                 r = thread_client.post(
                     f"/api/v1/financing/{app_id}/disburse",
                     json={

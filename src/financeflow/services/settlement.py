@@ -56,9 +56,12 @@ class SettlementService:
         # 1. Idempotency replay check
         existing_by_key = self._settlement_repo.get_by_idempotency_key(idempotency_key)
         if existing_by_key is not None:
+            existing_fee = existing_by_key.settlement_fee or Decimal("0.00")
+            expected_fee = settlement_fee or Decimal("0.00")
             if (
                 existing_by_key.financing_application_id != application_id
                 or existing_by_key.repayment_amount != repayment_amount
+                or existing_fee != expected_fee
             ):
                 raise DuplicateSettlementError(
                     f"Idempotency key '{idempotency_key}' was previously used "
