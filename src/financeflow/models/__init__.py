@@ -10,6 +10,7 @@ from financeflow.models.ledger import (
     LedgerEntry,
     LedgerTransaction,
 )
+from financeflow.models.settlement import Settlement, SettlementStatus
 
 __all__ = [
     "AccountType",
@@ -25,4 +26,6 @@ __all__ = [
     "LedgerAccount",
     "LedgerEntry",
     "LedgerTransaction",
+    "Settlement",
+    "SettlementStatus",
 ]

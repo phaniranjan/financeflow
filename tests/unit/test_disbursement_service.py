@@ -414,6 +414,7 @@ class TestExecuteDisbursement:
             id=app_id,
             invoice_id=inv_id,
             status=FinancingStatus.APPROVED.value,
+            requested_amount=Decimal("50000.00"),
             approved_amount=Decimal("40000.00"),
             fee_amount=Decimal("1200.00"),
             net_disbursement_amount=Decimal("38800.00"),
@@ -460,10 +461,11 @@ class TestExecuteDisbursement:
         # Underlying invoice transitioned to FINANCED
         assert invoice.status == InvoiceStatus.FINANCED.value
 
-        # Double-entry ledger posted
+        # Double-entry ledger posted with contractual reserve recognition
         mock_ledger_service.post_disbursement_transaction.assert_called_once_with(
             application_id=app_id,
-            approved_amount=Decimal("40000.00"),
+            receivable_amount=Decimal("50000.00"),
+            reserve_amount=Decimal("10000.00"),
             fee_amount=Decimal("1200.00"),
             net_amount=Decimal("38800.00"),
         )

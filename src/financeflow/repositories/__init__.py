@@ -4,6 +4,7 @@ from financeflow.repositories.disbursement import DisbursementRepository
 from financeflow.repositories.financing import FinancingRepository
 from financeflow.repositories.invoice import InvoiceRepository
 from financeflow.repositories.ledger import LedgerRepository
+from financeflow.repositories.settlement import SettlementRepository
 
 __all__ = [
     "AuditRepository",
@@ -12,4 +13,5 @@ __all__ = [
     "FinancingRepository",
     "InvoiceRepository",
     "LedgerRepository",
+    "SettlementRepository",
 ]

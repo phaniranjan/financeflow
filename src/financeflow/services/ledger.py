@@ -58,20 +58,22 @@ class LedgerService:
     def post_disbursement_transaction(
         self,
         application_id: uuid.UUID,
-        approved_amount: Decimal,
+        receivable_amount: Decimal,
+        reserve_amount: Decimal,
         fee_amount: Decimal,
         net_amount: Decimal,
     ) -> LedgerTransaction:
-        """Post a balanced 3-legged double-entry transaction for a financing disbursement."""
+        """Post a balanced transaction recognizing receivables, reserve, fee, and cash."""
         # Enforce fundamental double-entry balance invariant: Debits == Credits
-        if approved_amount != (fee_amount + net_amount):
+        if receivable_amount != (reserve_amount + fee_amount + net_amount):
             raise LedgerImbalanceError(
-                f"Ledger imbalance: approved ({approved_amount}) != "
-                f"fee ({fee_amount}) + net ({net_amount})"
+                f"Ledger imbalance: receivable ({receivable_amount}) != "
+                f"reserve ({reserve_amount}) + fee ({fee_amount}) + net ({net_amount})"
             )
 
         accounts = self.ensure_standard_accounts()
         rec_acc = accounts[RECEIVABLES_ACCOUNT_NUMBER]
+        res_acc = accounts[RESERVE_PAYABLE_ACCOUNT_NUMBER]
         fee_acc = accounts[FEE_REVENUE_ACCOUNT_NUMBER]
         cash_acc = accounts[CASH_ACCOUNT_NUMBER]
 
@@ -83,17 +85,28 @@ class LedgerService:
             )
         )
 
-        # 1. Debit: Receivables asset increases by approved advance
+        # 1. Debit: Receivables asset increases by gross receivable amount
         self._ledger_repo.create_entry(
             LedgerEntry(
                 transaction_id=tx.id,
                 account_id=rec_acc.id,
                 entry_type=EntryType.DEBIT.value,
-                amount=approved_amount,
+                amount=receivable_amount,
             )
         )
 
-        # 2. Credit: Fee revenue increases by financing fee
+        # 2. Credit: Reserve payable liability owed to business
+        if reserve_amount > Decimal("0.00"):
+            self._ledger_repo.create_entry(
+                LedgerEntry(
+                    transaction_id=tx.id,
+                    account_id=res_acc.id,
+                    entry_type=EntryType.CREDIT.value,
+                    amount=reserve_amount,
+                )
+            )
+
+        # 3. Credit: Fee revenue increases by financing fee
         self._ledger_repo.create_entry(
             LedgerEntry(
                 transaction_id=tx.id,
@@ -103,13 +116,118 @@ class LedgerService:
             )
         )
 
-        # 3. Credit: Cash asset decreases by net disbursement payout
+        # 4. Credit: Cash asset decreases by net disbursement payout
         self._ledger_repo.create_entry(
             LedgerEntry(
                 transaction_id=tx.id,
                 account_id=cash_acc.id,
                 entry_type=EntryType.CREDIT.value,
                 amount=net_amount,
+            )
+        )
+
+        return tx
+
+    def post_settlement_transaction(
+        self,
+        application_id: uuid.UUID,
+        repayment_amount: Decimal,
+    ) -> LedgerTransaction:
+        """Post a balanced 2-legged double-entry transaction for debtor collection."""
+        if repayment_amount <= Decimal("0.00"):
+            raise LedgerImbalanceError(
+                f"Ledger imbalance: repayment amount must be positive, got {repayment_amount}"
+            )
+
+        accounts = self.ensure_standard_accounts()
+        cash_acc = accounts[CASH_ACCOUNT_NUMBER]
+        rec_acc = accounts[RECEIVABLES_ACCOUNT_NUMBER]
+
+        tx = self._ledger_repo.create_transaction(
+            LedgerTransaction(
+                transaction_type="FINANCING_SETTLEMENT",
+                reference_id=application_id,
+                description=f"Debtor settlement for financing application {application_id}",
+            )
+        )
+
+        # 1. Debit Cash: Cash asset increases by debtor collection
+        self._ledger_repo.create_entry(
+            LedgerEntry(
+                transaction_id=tx.id,
+                account_id=cash_acc.id,
+                entry_type=EntryType.DEBIT.value,
+                amount=repayment_amount,
+            )
+        )
+
+        # 2. Credit Factoring Receivables: Extinguish factoring receivable
+        self._ledger_repo.create_entry(
+            LedgerEntry(
+                transaction_id=tx.id,
+                account_id=rec_acc.id,
+                entry_type=EntryType.CREDIT.value,
+                amount=repayment_amount,
+            )
+        )
+
+        return tx
+
+    def post_reserve_release_transaction(
+        self,
+        application_id: uuid.UUID,
+        reserve_amount: Decimal,
+        settlement_fee: Decimal,
+        net_refund_amount: Decimal,
+    ) -> LedgerTransaction:
+        """Post a balanced double-entry transaction releasing reserve to the client business."""
+        if reserve_amount != (settlement_fee + net_refund_amount):
+            raise LedgerImbalanceError(
+                f"Ledger imbalance: reserve ({reserve_amount}) != "
+                f"fee ({settlement_fee}) + net refund ({net_refund_amount})"
+            )
+
+        accounts = self.ensure_standard_accounts()
+        cash_acc = accounts[CASH_ACCOUNT_NUMBER]
+        res_acc = accounts[RESERVE_PAYABLE_ACCOUNT_NUMBER]
+        fee_acc = accounts[FEE_REVENUE_ACCOUNT_NUMBER]
+
+        tx = self._ledger_repo.create_transaction(
+            LedgerTransaction(
+                transaction_type="RESERVE_RELEASE",
+                reference_id=application_id,
+                description=f"Reserve release refund for financing application {application_id}",
+            )
+        )
+
+        # 1. Debit Customer Reserve Payable: Extinguish reserve liability
+        self._ledger_repo.create_entry(
+            LedgerEntry(
+                transaction_id=tx.id,
+                account_id=res_acc.id,
+                entry_type=EntryType.DEBIT.value,
+                amount=reserve_amount,
+            )
+        )
+
+        # 2. Credit Fee Revenue: Recognize settlement fee if any
+        if settlement_fee > Decimal("0.00"):
+            self._ledger_repo.create_entry(
+                LedgerEntry(
+                    transaction_id=tx.id,
+                    account_id=fee_acc.id,
+                    entry_type=EntryType.CREDIT.value,
+                    amount=settlement_fee,
+                )
+            )
+
+        # 3. Credit Cash: Cash asset decreases by payout to client business
+        self._ledger_repo.create_entry(
+            LedgerEntry(
+                transaction_id=tx.id,
+                account_id=cash_acc.id,
+                entry_type=EntryType.CREDIT.value,
+                amount=net_refund_amount,
             )
         )
 

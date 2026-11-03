@@ -141,10 +141,13 @@ class DisbursementService:
             if invoice is not None:
                 invoice.status = InvoiceStatus.FINANCED.value
 
-            # 11. Post immutable double-entry ledger journal transaction
+            # 11. Post immutable double-entry ledger journal transaction with reserve recognition
+            receivable_amount = application.requested_amount
+            reserve_amount = receivable_amount - approved_amount
             self._ledger_service.post_disbursement_transaction(
                 application_id=application_id,
-                approved_amount=approved_amount,
+                receivable_amount=receivable_amount,
+                reserve_amount=reserve_amount,
                 fee_amount=fee_amount,
                 net_amount=net_amount,
             )

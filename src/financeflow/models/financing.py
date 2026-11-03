@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from financeflow.models.business import Business
     from financeflow.models.disbursement import Disbursement
     from financeflow.models.invoice import Invoice
+    from financeflow.models.settlement import Settlement
 
 
 class FinancingStatus(StrEnum):
@@ -34,6 +35,8 @@ class FinancingStatus(StrEnum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     DISBURSED = "DISBURSED"
+    PARTIALLY_SETTLED = "PARTIALLY_SETTLED"
+    SETTLED = "SETTLED"
 
 
 class FinancingApplication(Base):
@@ -62,7 +65,9 @@ class FinancingApplication(Base):
             "uq_financing_active_invoice",
             "invoice_id",
             unique=True,
-            postgresql_where=text("status IN ('SUBMITTED', 'APPROVED', 'DISBURSED')"),
+            postgresql_where=text(
+                "status IN ('SUBMITTED', 'APPROVED', 'DISBURSED', 'PARTIALLY_SETTLED')"
+            ),
         ),
     )
 
@@ -140,6 +145,15 @@ class FinancingApplication(Base):
         back_populates="financing_application",
         uselist=False,
     )
+    settlements: Mapped[list["Settlement"]] = relationship(
+        back_populates="financing_application",
+    )
+
+    @property
+    def settlement(self) -> "Settlement | None":
+        """Return the latest settlement record for backward compatibility."""
+        return self.settlements[-1] if self.settlements else None
+
     audit_logs: Mapped[list["FinancingAuditLog"]] = relationship(
         back_populates="financing_application",
     )

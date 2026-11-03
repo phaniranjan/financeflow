@@ -19,6 +19,7 @@ def alembic_config():
 def clean_db():
     """Ensure database is in a clean state and alembic_version is reset."""
     with engine.connect() as conn:
+        conn.execute(sa.text("DROP TABLE IF EXISTS settlements CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS financing_audit_logs CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS disbursements CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS ledger_entries CASCADE;"))
@@ -32,6 +33,7 @@ def clean_db():
     yield
     # Clean up after test
     with engine.connect() as conn:
+        conn.execute(sa.text("DROP TABLE IF EXISTS settlements CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS financing_audit_logs CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS disbursements CASCADE;"))
         conn.execute(sa.text("DROP TABLE IF EXISTS ledger_entries CASCADE;"))
@@ -69,6 +71,7 @@ class TestDatabaseMigrations:
         assert "ledger_transactions" in upgraded_tables
         assert "ledger_entries" in upgraded_tables
         assert "financing_audit_logs" in upgraded_tables
+        assert "settlements" in upgraded_tables
 
         # 2. Verify column specifications and constraints
         invoice_columns = {col["name"]: col for col in inspector.get_columns("invoices")}
@@ -91,6 +94,7 @@ class TestDatabaseMigrations:
         command.downgrade(alembic_config, "base")
         inspector = inspect(engine)
         downgraded_tables = set(inspector.get_table_names())
+        assert "settlements" not in downgraded_tables
         assert "financing_audit_logs" not in downgraded_tables
         assert "disbursements" not in downgraded_tables
         assert "ledger_entries" not in downgraded_tables

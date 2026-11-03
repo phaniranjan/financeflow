@@ -15,6 +15,10 @@ from financeflow.schemas.ledger import (
     LedgerTransactionResponse,
     TrialBalanceResponse,
 )
+from financeflow.schemas.settlement import (
+    SettlementRequest,
+    SettlementResponse,
+)
 
 __all__ = [
     "DisbursementCreateRequest",
@@ -29,5 +33,7 @@ __all__ = [
     "LedgerAccountResponse",
     "LedgerEntryResponse",
     "LedgerTransactionResponse",
+    "SettlementRequest",
+    "SettlementResponse",
     "TrialBalanceResponse",
 ]

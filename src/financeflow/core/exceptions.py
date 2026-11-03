@@ -76,3 +76,19 @@ class LedgerImbalanceError(FinanceFlowError):
 
 class LedgerAccountNotFoundError(EntityNotFoundError):
     """Raised when a referenced ledger account does not exist in chart of accounts."""
+
+
+class SettlementNotFoundError(EntityNotFoundError):
+    """Raised when a referenced Settlement cannot be found."""
+
+
+class InvalidSettlementStateError(FinanceFlowError):
+    """Raised when settlement is attempted on a non-disbursed application."""
+
+
+class DuplicateSettlementError(FinanceFlowError):
+    """Raised when an application is already settled or an idempotency key conflict occurs."""
+
+
+class InvalidSettlementAmountError(FinanceFlowError):
+    """Raised when repayment amount or settlement fee violates domain bounds."""

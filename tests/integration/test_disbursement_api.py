@@ -177,7 +177,7 @@ class TestDisbursementIntegration:
 
             entries_stmt = select(LedgerEntry).where(LedgerEntry.transaction_id == tx.id)
             entries = list(session.scalars(entries_stmt).all())
-            assert len(entries) == 3
+            assert len(entries) == 4
 
             # Verify debits == credits
             total_debits = sum(
@@ -188,8 +188,8 @@ class TestDisbursementIntegration:
                 (e.amount for e in entries if e.entry_type == EntryType.CREDIT.value),
                 Decimal("0.00"),
             )
-            assert total_debits == Decimal("40000.00")
-            assert total_credits == Decimal("40000.00")
+            assert total_debits == Decimal("50000.00")
+            assert total_credits == Decimal("50000.00")
             assert total_debits == total_credits
 
         # 3. Retrieve Disbursement by Application ID
@@ -208,7 +208,8 @@ class TestDisbursementIntegration:
         accounts_data = accounts_resp.json()
         assert len(accounts_data) >= 4
         acc_dict = {a["account_number"]: a for a in accounts_data}
-        assert acc_dict["1200"]["balance"] == "40000.00"  # Receivables asset debit balance
+        assert acc_dict["1200"]["balance"] == "50000.00"  # Gross receivables asset debit balance
+        assert acc_dict["2100"]["balance"] == "10000.00"  # Customer reserve payable credit balance
         assert acc_dict["4010"]["balance"] == "1200.00"  # Fee revenue credit balance
         assert acc_dict["1010"]["balance"] == "-38800.00"  # Cash asset credit reduction
 
