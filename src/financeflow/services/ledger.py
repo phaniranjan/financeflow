@@ -107,24 +107,26 @@ class LedgerService:
             )
 
         # 3. Credit: Fee revenue increases by financing fee
-        self._ledger_repo.create_entry(
-            LedgerEntry(
-                transaction_id=tx.id,
-                account_id=fee_acc.id,
-                entry_type=EntryType.CREDIT.value,
-                amount=fee_amount,
+        if fee_amount > Decimal("0.00"):
+            self._ledger_repo.create_entry(
+                LedgerEntry(
+                    transaction_id=tx.id,
+                    account_id=fee_acc.id,
+                    entry_type=EntryType.CREDIT.value,
+                    amount=fee_amount,
+                )
             )
-        )
 
         # 4. Credit: Cash asset decreases by net disbursement payout
-        self._ledger_repo.create_entry(
-            LedgerEntry(
-                transaction_id=tx.id,
-                account_id=cash_acc.id,
-                entry_type=EntryType.CREDIT.value,
-                amount=net_amount,
+        if net_amount > Decimal("0.00"):
+            self._ledger_repo.create_entry(
+                LedgerEntry(
+                    transaction_id=tx.id,
+                    account_id=cash_acc.id,
+                    entry_type=EntryType.CREDIT.value,
+                    amount=net_amount,
+                )
             )
-        )
 
         return tx
 
@@ -222,14 +224,15 @@ class LedgerService:
             )
 
         # 3. Credit Cash: Cash asset decreases by payout to client business
-        self._ledger_repo.create_entry(
-            LedgerEntry(
-                transaction_id=tx.id,
-                account_id=cash_acc.id,
-                entry_type=EntryType.CREDIT.value,
-                amount=net_refund_amount,
+        if net_refund_amount > Decimal("0.00"):
+            self._ledger_repo.create_entry(
+                LedgerEntry(
+                    transaction_id=tx.id,
+                    account_id=cash_acc.id,
+                    entry_type=EntryType.CREDIT.value,
+                    amount=net_refund_amount,
+                )
             )
-        )
 
         return tx
 

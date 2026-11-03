@@ -124,7 +124,7 @@ class FinancingService:
         application_id: uuid.UUID,
     ) -> FinancingApplication:
         """Approve application, calculate financial terms, and transition invoice atomically."""
-        application = self._financing_repo.get_by_id(application_id)
+        application = self._financing_repo.get_by_id(application_id, for_update=True)
         if application is None:
             raise FinancingApplicationNotFoundError(f"Application {application_id} not found")
 

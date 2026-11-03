@@ -62,10 +62,18 @@ class DisbursementService:
         # 1. Idempotency replay check: Return existing disbursement if idempotency_key was used
         existing_by_key = self._disbursement_repo.get_by_idempotency_key(idempotency_key)
         if existing_by_key is not None:
+            if (
+                existing_by_key.financing_application_id != application_id
+                or existing_by_key.recipient_account != recipient_account
+            ):
+                raise DuplicateDisbursementError(
+                    f"Idempotency key '{idempotency_key}' was previously used "
+                    f"for a different application or recipient"
+                )
             return existing_by_key
 
-        # 2. Verify application existence
-        application = self._financing_repo.get_by_id(application_id)
+        # 2. Verify application existence with row-level lock
+        application = self._financing_repo.get_by_id(application_id, for_update=True)
         if application is None:
             raise FinancingApplicationNotFoundError(f"Application {application_id} not found")
 
@@ -98,7 +106,25 @@ class DisbursementService:
             recipient_account=recipient_account,
             idempotency_key=idempotency_key,
         )
-        provider_result = self._provider.disburse(provider_req)
+        try:
+            provider_result = self._provider.disburse(provider_req)
+        except Exception as exc:
+            err_msg = f"Disbursement provider connection failure: {exc}"
+            self._audit_repo.create(
+                FinancingAuditLog(
+                    application_id=application_id,
+                    from_status=application.status,
+                    to_status=application.status,
+                    actor="DISBURSEMENT_GATEWAY",
+                    correlation_id=corr_id,
+                    reason=err_msg,
+                )
+            )
+            try:
+                self._session.commit()
+            except Exception:
+                self._session.rollback()
+            raise DisbursementExecutionError(err_msg) from exc
 
         # 7. Handle provider failure / timeout
         if provider_result.status in (DisbursementStatus.FAILED, DisbursementStatus.TIMEOUT):

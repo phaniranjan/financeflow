@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     default_fee_percentage: Decimal = Decimal("0.0300")
     default_currency: str = "USD"
 
+    api_key: str = "financeflow_secret_key"
+    api_key_required: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
